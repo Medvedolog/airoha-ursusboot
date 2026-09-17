@@ -1,0 +1,12 @@
+name: QA
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  standalone-qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash ./scripts/qa.sh
