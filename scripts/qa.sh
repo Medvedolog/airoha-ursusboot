@@ -28,4 +28,13 @@ if grep -R -nE 'vendor-baseline|git clone .*airoha-router-ursusflasher|raw\.gith
     echo 'unexpected build/runtime dependency on the old repository' >&2
     exit 1
 fi
+# Shared lwIP ownership contract: WebFailsafe keeps the live netif; ping/TFTP
+# borrow it, Web Console commands are deferred out of TCP callbacks, and UART
+# Ctrl-C provides the explicit escape back to the normal U-Boot shell.
+grep -q 'Network busy: active lwIP interface' "$ROOT/src/u-boot/net/lwip/net-lwip.c"
+grep -q 'bool borrowed = false' "$ROOT/src/u-boot/cmd/lwip/ping.c"
+grep -q 'bool borrowed = false' "$ROOT/src/u-boot/net/lwip/tftp.c"
+grep -q 'URSUS_CONSOLE_DEFER' "$ROOT/src/u-boot/cmd/ursusweb.c"
+grep -q 'URSUS_WEB_STOP_REQUEST source=UART' "$ROOT/src/u-boot/cmd/ursusweb.c"
+grep -q 'URSUS_WEB_STOPPED restart=ursusweb' "$ROOT/src/u-boot/cmd/ursusweb.c"
 echo URSUSBOOT_STANDALONE_QA=PASS
