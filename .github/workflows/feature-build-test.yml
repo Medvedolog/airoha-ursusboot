@@ -1,0 +1,45 @@
+name: Feature build test
+
+on:
+  push:
+    branches: [ feature/data-driven-build-fip-repack ]
+  workflow_dispatch:
+
+jobs:
+  build-xg040-md:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install host build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential liblzma-dev bison flex swig python3-dev libssl-dev bc device-tree-compiler pkg-config zstd
+      - name: Standalone QA
+        run: ./scripts/qa.sh
+      - name: Fetch official OpenWrt AArch64 toolchain
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 3 \
+            -o /tmp/openwrt-toolchain.tar.zst \
+            https://downloads.openwrt.org/snapshots/targets/mediatek/filogic/openwrt-toolchain-mediatek-filogic_gcc-14.4.0_musl.Linux-x86_64.tar.zst
+          mkdir -p /tmp/openwrt-toolchain
+          tar --zstd -xf /tmp/openwrt-toolchain.tar.zst -C /tmp/openwrt-toolchain
+          SDK_ROOT="$(find /tmp/openwrt-toolchain -mindepth 1 -maxdepth 1 -type d | head -1)"
+          test -n "$SDK_ROOT"
+          echo "OPENWRT_SDK=$SDK_ROOT" >> "$GITHUB_ENV"
+      - name: Build XG-040G-MD persistent
+        run: ./build.sh xg040-md persistent
+      - name: Report artifact sizes
+        run: |
+          ls -lh dist/xg040-md
+          stat -c '%n %s bytes' dist/xg040-md/u-boot.bin dist/xg040-md/u-boot.lzma dist/xg040-md/ursusboot-update.fip dist/xg040-md/ursusboot-install-mtd0.bin
+          cat dist/xg040-md/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ursusboot-xg040-md-feature-build
+          path: |
+            dist/xg040-md/u-boot.bin
+            dist/xg040-md/u-boot.lzma
+            dist/xg040-md/ursusboot-update.fip
+            dist/xg040-md/ursusboot-install-mtd0.bin
+            dist/xg040-md/SHA256SUMS
