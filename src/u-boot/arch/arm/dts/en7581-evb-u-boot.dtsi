@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: GPL-2.0+
+
+/ {
+	/* When running as a first-stage bootloader this isn't filled in automatically */
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x0 0x80000000 0x0 0x20000000>;
+	};
+};
+
+#include "an7581-u-boot.dtsi"
+
+&gdm1 {
+	status = "okay";
+};
+
+&gdm2 {
+	status = "okay";
+
+	managed = "in-band-status";
+	phy-mode = "10gbase-r";
+};
+
+&gdm4 {
+	status = "okay";
+
+	managed = "in-band-status";
+	phy-mode = "usxgmii";
+};
+
+&snfi {
+	status = "okay";
+};
+
+&spi_nand {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		bl2@0 {
+			label = "bl2";
+			reg = <0x0 0x20000>;
+		};
+
+		ubi@20000 {
+			label = "ubi";
+			reg = <0x20000 0x0>;
+		};
+	};
+};

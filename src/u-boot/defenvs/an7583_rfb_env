@@ -1,0 +1,4 @@
+loadaddr=0x81800000
+ipaddr=192.168.1.1
+serverip=192.168.1.10
+bootargs=ubi.mtd=ubi root=/dev/ubiblock0_5 rootwait

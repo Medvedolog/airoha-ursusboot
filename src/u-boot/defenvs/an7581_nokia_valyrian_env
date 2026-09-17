@@ -1,0 +1,25 @@
+loadaddr=0x90000000
+ipaddr=192.168.1.1
+serverip=192.168.1.10
+emmc_bootfile_bl2=openwrt-airoha-an7581-nokia_valyrian-preloader.bin
+emmc_bootfile_fip=openwrt-airoha-an7581-nokia_valyrian-bl31-uboot.fip
+bootmenu_confirm_return=askenv - Press ENTER to return to menu ; bootmenu 60
+bootmenu_default=0
+bootmenu_delay=0
+bootmenu_title=      [0;34m( ( ( [1;39mOpenWrt[0;34m ) ) )  [0;36m[EMMC][0m
+bootmenu_0=Initialize environment.=run _firstboot
+bootmenu_0d=Run default boot command.=run boot_default
+bootmenu_1=[31mLoad BL31+U-Boot FIP via TFTP then write to eMMC.[0m=run emmc_boot_tftp_write_fip ; run bootmenu_confirm_return
+bootmenu_2=[31mLoad BL2 preloader via TFTP then write to eMMC.[0m=run emmc_boot_tftp_write_bl2 ; run bootmenu_confirm_return
+bootmenu_3=Reboot.=reset
+bootmenu_4=Reset all settings to factory defaults.=run reset_factory ; reset
+boot_default=bootm
+reset_factory=eraseenv && reset
+emmc_boot_tftp_write_fip=tftpboot $loadaddr $emmc_bootfile_fip && run emmc_write_fip
+emmc_boot_tftp_write_bl2=tftpboot $loadaddr $emmc_bootfile_bl2 && run emmc_write_bl2
+emmc_write_bl2=mmc erase 0x4 0xfc && mmc write $fileaddr 0x4 0xfc
+emmc_write_fip=mmc erase 0x100 0x700 && mmc write $fileaddr 0x100 0x700
+_init_env=setenv _init_env ; saveenv
+_firstboot=setenv _firstboot ; run _switch_to_menu ; run _init_env ; bootmenu
+_switch_to_menu=setenv _switch_to_menu ; setenv bootdelay 3 ; setenv bootmenu_delay 3 ; setenv bootmenu_0 $bootmenu_0d ; setenv bootmenu_0d ; run _bootmenu_update_title
+_bootmenu_update_title=setenv _bootmenu_update_title ; setenv bootmenu_title "$bootmenu_title       [33m$ver[0m"

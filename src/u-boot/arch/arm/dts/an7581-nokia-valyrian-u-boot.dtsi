@@ -1,0 +1,104 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+
+/ {
+	/* When running as a first-stage bootloader this isn't filled in automatically */
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x0 0x80000000 0x0 0x40000000>;
+	};
+};
+
+#include "an7581-u-boot.dtsi"
+
+&mmc0 {
+	status = "okay";
+
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	card@0 {
+		compatible = "mmc-card";
+		reg = <0>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			bl@800 {
+				label = "bl2";
+				reg = <0x00000800 0x0001f800>;
+			};
+
+			bootloader@20000 {
+				label = "bootloader";
+				reg = <0x00020000 0x000e0000>;
+			};
+
+			bootloader-inactive@100000 {
+				label = "bootloader-inactive";
+				reg = <0x00100000 0x000e0000>;
+			};
+
+			u-boot-env@1e0000 {
+				label = "u-boot-env";
+				reg = <0x001e0000 0x00020000>;
+
+				u-boot,mmc-env-partition;
+			};
+
+			factory@200000 {
+				label = "factory";
+				reg = <0x00200000 0x00800000>;
+			};
+
+			mfgdata@a00000 {
+				label = "mfgdata";
+				reg = <0x00a00000 0x00100000>;
+			};
+
+			kernel-active@b00000 {
+				label = "kernel-active";
+				reg = <0x00b00000 0x00800000>;
+			};
+
+			kernel-inactive@1300000 {
+				label = "kernel-inactive";
+				reg = <0x01300000 0x00800000>;
+			};
+
+			rootfs-active@1b00000 {
+				label = "rootfs-active";
+				reg = <0x01b00000 0x06400000>;
+			};
+
+			rootfs-inactive@7f00000 {
+				label = "rootfs-inactive";
+				reg = <0x07f00000 0x06400000>;
+			};
+
+			rootfs-data@e300000 {
+				label = "rootfs_data";
+				reg = <0x0e300000 0x02000000>;
+			};
+
+			securestore@10300000 {
+				label = "securestore";
+				reg = <0x10300000 0x1000000>;
+			};
+
+			lcm-data@11300000 {
+				label = "lcm_data";
+				reg = <0x11300000 0x40000000>;
+			};
+		};
+	};
+};
+
+&eth {
+	status = "okay";
+};
+
+&gdm1 {
+	status = "okay";
+};

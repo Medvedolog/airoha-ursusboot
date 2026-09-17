@@ -1,0 +1,27 @@
+loadaddr=0x81800000
+initaddr=0x89000000
+ipaddr=192.168.1.1
+serverip=192.168.1.10
+bootfile=openwrt-airoha-an7581-gemtek_w1700k-ubi-initramfs-recovery.itb
+installfile=openwrt-airoha-an7581-gemtek_w1700k-ubi-initramfs-installer.itb
+bootled_pwr=status:red
+bootled_rec=status:blue
+boot_ubi=ubi part ubi && run boot_production ; run boot_recovery
+boot_production=led $bootled_pwr on ; run ubi_read_production && bootm $loadaddr#$bootconf ; led $bootled_pwr off
+boot_recovery=led $bootled_rec on ; run ubi_read_recovery ; bootm $initaddr#$bootconf ; led $bootled_rec off
+boot_tftp=tftpboot $initaddr $bootfile && bootm $initaddr#$bootconf
+boot_installer=tftpboot $initaddr $installfile && bootm $initaddr#$bootconf
+bootconf=config-1
+bootcmd=boot_ubi
+bootdelay=3
+bootmenu_confirm_return=askenv - Press ENTER to return to menu ; bootmenu 60
+bootmenu_default=0
+bootmenu_delay=3
+bootmenu_title=      34m( ( ( mOpenWrt34m ) ) )
+bootmenu_0=Run default boot command.=run boot_production
+bootmenu_1=Boot system via TFTP.=run boot_tftp ; run bootmenu_confirm_return
+bootmenu_2=Boot recovery system from flash.=run boot_recovery ; run bootmenu_confirm_return
+bootmenu_3=Boot installer via TFTP.=run boot_installer ; run bootmenu_confirm_return
+bootmenu_4=Reboot.=reset
+ubi_read_production=ubi read $loadaddr fit && iminfo $loadaddr
+ubi_read_recovery=ubi check recovery && ubi read $initaddr recovery

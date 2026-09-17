@@ -1,0 +1,107 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+/dts-v1/;
+
+#include <dt-bindings/leds/common.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include "en7581.dtsi"
+
+/ {
+	model = "Nokia XG-040G-MD";
+	compatible = "nokia,xg-040g-md",
+		     "airoha,an7581",
+		     "airoha,en7581";
+
+	chosen {
+		bootargs = "console=ttyS0,115200 earlycon";
+		stdout-path = "serial0:115200n8";
+		linux,usable-memory-range = <0x0 0x80200000 0x0 0x1fe00000>;
+	};
+
+
+	ursus_gpio: gpio@1fbf0200 {
+		compatible = "ursus,an7581-safe-gpio";
+		reg = <0x0 0x1fbf0200 0x0 0xc0>;
+		gpio-controller;
+		#gpio-cells = <2>;
+	};
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x0 0x80000000 0x0 0x20000000>;
+	};
+
+	keys {
+		compatible = "gpio-keys";
+
+		button-0 {
+			label = "reset";
+			linux,code = <KEY_RESTART>;
+			gpios = <&ursus_gpio 0 GPIO_ACTIVE_LOW>;
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led-0 {
+			label = "green:power";
+			gpios = <&en7581_pinctrl 17 GPIO_ACTIVE_LOW>;
+		};
+
+		led-1 {
+			label = "green:wan";
+			gpios = <&en7581_pinctrl 18 GPIO_ACTIVE_LOW>;
+		};
+
+		status-red {
+			label = "status-red";
+			gpios = <&ursus_gpio 19 GPIO_ACTIVE_LOW>;
+		};
+
+		led-3 {
+			label = "green:wan-online";
+			gpios = <&en7581_pinctrl 20 GPIO_ACTIVE_LOW>;
+		};
+
+		usb2-green {
+			label = "usb2-green";
+			gpios = <&ursus_gpio 34 GPIO_ACTIVE_LOW>;
+		};
+
+		usb1-green {
+			label = "usb1-green";
+			gpios = <&ursus_gpio 35 GPIO_ACTIVE_LOW>;
+		};
+	};
+};
+
+&snfi {
+	status = "okay";
+};
+
+&spi_nand {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		partition@0 {
+			label = "bl2";
+			reg = <0x0 0x20000>;
+		};
+
+		partition@20000 {
+			label = "ubi";
+			reg = <0x20000 0xffe0000>;
+		};
+	};
+};
+
+&i2c0 {
+	status = "okay";
+};
+
+&eth {
+	status = "okay";
+};
