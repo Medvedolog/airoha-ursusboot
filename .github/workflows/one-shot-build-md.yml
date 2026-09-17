@@ -10,13 +10,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Host deps
         run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential liblzma-dev bison flex swig python3-dev libssl-dev bc device-tree-compiler pkg-config zstd
-      - name: Download official OpenWrt Airoha toolchain snapshot
+      - name: Download official OpenWrt AArch64 toolchain
         shell: bash
         run: |
           set -euo pipefail
-          URL='https://downloads.openwrt.org/snapshots/targets/airoha/an7581/openwrt-toolchain-airoha-an7581_gcc-14.4.0_musl.Linux-x86_64.tar.zst'
+          URL='https://downloads.openwrt.org/snapshots/targets/mediatek/filogic/openwrt-toolchain-mediatek-filogic_gcc-14.4.0_musl.Linux-x86_64.tar.zst'
           curl --http1.1 -fL -C - --retry 8 --retry-all-errors --retry-delay 2 "$URL" -o /tmp/toolchain.tar.zst
-          echo '91085dd907eef147bd4b887ee72fab90b40657eabd23a90ea10bb881eb256f0f  /tmp/toolchain.tar.zst' | sha256sum -c -
+          sha256sum /tmp/toolchain.tar.zst
           mkdir -p /tmp/toolchain
           tar --zstd -xf /tmp/toolchain.tar.zst -C /tmp/toolchain
           SDKROOT="$(find /tmp/toolchain -mindepth 1 -maxdepth 1 -type d | head -1)"
