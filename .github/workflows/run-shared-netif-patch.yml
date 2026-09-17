@@ -1,0 +1,23 @@
+name: Run shared-netif patch
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/apply-shared-netif.py
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: python3 scripts/apply-shared-netif.py
+      - run: git diff --check && ./scripts/qa.sh
+      - run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/u-boot/net/lwip/net-lwip.c src/u-boot/cmd/lwip/ping.c src/u-boot/net/lwip/tftp.c src/u-boot/cmd/ursusweb.c scripts/qa.sh
+          git commit -m 'net: share UrsusWeb lwIP netif with ping and TFTP'
+          git push origin HEAD:main
