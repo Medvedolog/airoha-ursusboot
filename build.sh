@@ -125,7 +125,10 @@ else
     echo "board $BOARD: no reference_fip declared; raw u-boot.bin only" >&2
 fi
 
-sha256sum "$OUT/u-boot.bin" ${REF:+"$OUT/u-boot.lzma" "$OUT/ursusboot-update.fip" "$OUT/ursusboot-install-mtd0.bin"} \
-    2>/dev/null | tee "$OUT/SHA256SUMS"
+sum_files=("$OUT/u-boot.bin")
+if [ -n "$REF" ]; then
+    sum_files+=("$OUT/u-boot.lzma" "$OUT/ursusboot-update.fip" "$OUT/ursusboot-install-mtd0.bin")
+fi
+sha256sum "${sum_files[@]}" | tee "$OUT/SHA256SUMS"
 
 echo "URSUSBOOT_BUILD=OK board=$BOARD role=$ROLE out=dist/$BOARD"
