@@ -2,7 +2,7 @@
 
 **Compact OpenWrt-aware recovery and installation U-Boot for Airoha router platforms.**
 
-UrsusBoot grew out of the OpenWrt/MediaTek bootloader ecosystem, but targets Airoha devices where a small persistent recovery environment is especially valuable. It combines WebFailsafe, OpenWrt image awareness, UBI migration and recovery primitives while staying small enough for constrained boot areas.
+UrsusBoot grew out of the OpenWrt U-Boot bootloader ecosystem and targets Airoha devices where a small persistent recovery environment is especially valuable. It combines WebFailsafe, OpenWrt image awareness, UBI migration and recovery primitives while staying small enough for constrained boot areas.
 
 ## Why UrsusBoot
 
@@ -20,7 +20,7 @@ Typical capabilities include:
 
 ## Repository policy: self-contained
 
-This repository is intended to be **self-contained**. A normal build must not clone or download code, templates or binary donors from UrsusFlasher, MedveFlasher, hanwckf, Yuzhii0718 or any other project.
+This repository is intended to be **self-contained**. A normal build must not clone or download code, templates or binary donors from any other projects.
 
 The only external build dependency permitted by policy is an **OpenWrt SDK/toolchain** appropriate for the target Airoha SoC. Board templates, boot-area templates, FIP lineage inputs, patches, configuration and build scripts belong in this repository.
 
