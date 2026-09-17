@@ -24,9 +24,11 @@ print('board templates + profile registry: PASS')
 PY
 for p in Makefile Kconfig arch board common drivers include net; do test -e "$ROOT/src/u-boot/$p" || exit 1; done
 grep -q 'Repository policy: self-contained' "$ROOT/README.md"
-for helper in resolve_board_profile.py apply_runtime_role.py make-install-mtd0.py repack-fip.py lzma1ext_noeopm.c; do grep -q "$helper" "$ROOT/build.sh" || { echo "build.sh missing $helper" >&2; exit 1; }; done
-grep -q 'NT_END_MAX=0x77800' "$ROOT/scripts/repack-fip.py"
-if grep -R -nE 'vendor-baseline|git clone .*airoha-router-ursusflasher|raw\.githubusercontent\.com/Medvedolog/airoha-router-ursusflasher|codeload\.github\.com/Medvedolog/airoha-router-ursusflasher' "$ROOT" --exclude='PROVENANCE.md' --exclude='qa.sh' --exclude='one-shot-import-polish.yml'; then echo 'unexpected build/runtime dependency on old repository' >&2; exit 1; fi
+for helper in resolve_board_profile.py apply_runtime_role.py make-install-mtd0.py repack_persistent_fip.py lzma1ext_noeopm.c; do grep -q "$helper" "$ROOT/build.sh" || { echo "build.sh missing $helper" >&2; exit 1; }; done
+test -f "$ROOT/src/u-boot/repack_persistent_fip.py"
+test -f "$ROOT/src/u-boot/lzma1ext_noeopm.c"
+grep -q 'FIP_CURRENT_BL33=PASS' "$ROOT/build.sh"
+if grep -R -nE 'vendor-baseline|git clone .*airoha-router-ursusflasher|raw\.githubusercontent\.com/Medvedolog/airoha-router-ursusflasher|codeload\.github\.com/Medvedolog/airoha-router-ursusflasher' "$ROOT" --exclude='PROVENANCE.md' --exclude='qa.sh'; then echo 'unexpected build/runtime dependency on old repository' >&2; exit 1; fi
 grep -q 'Network busy: active lwIP interface' "$ROOT/src/u-boot/net/lwip/net-lwip.c"
 grep -q 'bool borrowed = false' "$ROOT/src/u-boot/cmd/lwip/ping.c"
 grep -q 'bool borrowed = false' "$ROOT/src/u-boot/net/lwip/tftp.c"
