@@ -1,0 +1,379 @@
+name: One-shot import standalone build polish
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/one-shot-import-polish.yml']
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Import data-driven profile changes and README
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL 'https://raw.githubusercontent.com/Medvedolog/airoha-router-ursusflasher/claude/eloquent-heisenberg-78tcii/patches/ursusboot-standalone/0001-data-driven-build-and-qa-guards.patch' -o /tmp/0001.patch
+          git apply --include='config/board-profiles.json' --include='scripts/resolve_board_profile.py' /tmp/0001.patch
+          curl -fsSL 'https://raw.githubusercontent.com/Medvedolog/airoha-router-ursusflasher/claude/eloquent-heisenberg-78tcii/patches/ursusboot-standalone/ursusboot-README.md' -o README.md
+      - name: Install corrected self-contained build pipeline
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > build.sh <<'EOF'
+          #!/usr/bin/env bash
+          # Build UrsusBoot for one board profile and, where a reference FIP is
+          # declared, repack that FIP with the U-Boot produced by THIS build and
+          # emit a ready-to-flash 512 KiB mtd0 install image.
+          set -euo pipefail
+
+          ROOT="$(cd "$(dirname "$0")" && pwd)"
+          REGISTRY="$ROOT/config/board-profiles.json"
+          RESOLVE="$ROOT/scripts/resolve_board_profile.py"
+          BOARD="${1:-xg040-md}"
+          ROLE="${2:-}"
+          SDK="${OPENWRT_SDK:-${3:-}}"
+
+          role_args=()
+          [ -n "$ROLE" ] && role_args=(--role "$ROLE")
+
+          profile_field() {
+              python3 "$RESOLVE" --registry "$REGISTRY" --profile "$BOARD" \
+                  ${role_args[@]+"${role_args[@]}"} --field "$1"
+          }
+
+          ROLE="$(profile_field runtime_role)"
+          CONFIG_REL="$(profile_field config)"
+          TEMPLATE_REL="$(profile_field boot_area_template)"
+          CONFIG="$ROOT/config/$CONFIG_REL"
+          TEMPLATE="$ROOT/$TEMPLATE_REL"
+          [ -f "$CONFIG" ] || { echo "board $BOARD: missing config $CONFIG" >&2; exit 3; }
+          [ -f "$TEMPLATE" ] || { echo "board $BOARD: missing boot-area template $TEMPLATE" >&2; exit 3; }
+
+          : "${SDK:?Set OPENWRT_SDK to an extracted OpenWrt SDK/toolchain}"
+          export STAGING_DIR="$SDK/staging_dir"
+          STAGING_DIR_HOST="${STAGING_DIR_HOST:-$STAGING_DIR/host}"
+          export STAGING_DIR_HOST
+          CROSS="$(find "$STAGING_DIR" -type f \( -name 'aarch64-openwrt-linux-musl-gcc' -o -name 'aarch64-openwrt-linux-gcc' \) | head -1 || true)"
+          [ -n "$CROSS" ] || { echo 'AArch64 compiler not found in OpenWrt SDK' >&2; exit 3; }
+          export CROSS_COMPILE="${CROSS%gcc}"
+
+          python3 "$ROOT/scripts/apply_runtime_role.py" "$ROOT/src/u-boot" --role "$ROLE" || {
+              echo "runtime role $ROLE could not be applied; restore the tree with:" >&2
+              echo "  git checkout -- src/u-boot/defenvs src/u-boot/include" >&2
+              exit 4
+          }
+
+          cp "$CONFIG" "$ROOT/src/u-boot/.config"
+          make -C "$ROOT/src/u-boot" olddefconfig
+          make -C "$ROOT/src/u-boot" -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
+
+          OUT="$ROOT/dist/$BOARD"
+          mkdir -p "$OUT"
+          cp "$ROOT/src/u-boot/u-boot.bin" "$OUT/u-boot.bin"
+
+          DONOR="${URSUS_FIP:-}"
+          if [ -z "$DONOR" ]; then
+              REF="$(profile_field reference_fip 2>/dev/null || true)"
+              [ -n "$REF" ] && DONOR="$ROOT/$REF"
+          fi
+
+          if [ -n "$DONOR" ]; then
+              [ -f "$DONOR" ] || { echo "board $BOARD: FIP reference/donor not found: $DONOR" >&2; exit 5; }
+              command -v cc >/dev/null || { echo 'host C compiler (cc) is required for LZMA1EXT packing' >&2; exit 5; }
+              HOSTTOOLS="$ROOT/dist/.host-tools"
+              mkdir -p "$HOSTTOOLS"
+              cc -O2 -Wall -Wextra "$ROOT/scripts/lzma1ext_noeopm.c" -llzma -o "$HOSTTOOLS/lzma1ext_noeopm"
+              "$HOSTTOOLS/lzma1ext_noeopm" "$OUT/u-boot.bin" "$OUT/u-boot.lzma" 1048576
+              python3 "$ROOT/scripts/repack-fip.py" \
+                  --donor "$DONOR" --bl33 "$OUT/u-boot.lzma" \
+                  --output "$OUT/ursusboot-update.fip"
+              python3 "$ROOT/scripts/make-install-mtd0.py" \
+                  --template "$TEMPLATE" --fip "$OUT/ursusboot-update.fip" \
+                  --output "$OUT/ursusboot-install-mtd0.bin"
+          else
+              echo "URSUSBOOT_FIP=SKIP board=$BOARD reason=no-reference-fip"
+          fi
+
+          echo "URSUSBOOT_BUILD=OK board=$BOARD role=$ROLE out=dist/$BOARD"
+          EOF
+          chmod +x build.sh
+
+          cat > scripts/repack-fip.py <<'PY'
+          #!/usr/bin/env python3
+          """Replace only BL33 in a proven Airoha FIP reference.
+
+          The FIP table, all non-BL33 entries, offsets and trailing donor bytes are
+          preserved. Only the BL33 size field and BL33 payload bytes are changed.
+          This deliberately avoids silently rebuilding BL2/BL31 or changing their
+          lineage while ensuring the emitted FIP contains the U-Boot from this build.
+          """
+          from __future__ import annotations
+          import argparse
+          import hashlib
+          import struct
+          from pathlib import Path
+
+          MAGIC = 0xAA640001
+          HEADER = 16
+          ENTRY = 40
+          NT_FW_UUID = bytes.fromhex('d6d0eea7fcead54b97829934f234b6e4')
+          NT_END_MAX = 0x77800
+          FIP_FILE_MAX = 0x7B800
+
+          def parse(data: bytes):
+              if len(data) < HEADER + ENTRY or struct.unpack_from('<I', data, 0)[0] != MAGIC:
+                  raise SystemExit('donor is not an ARM FIP')
+              entries = []
+              pos = HEADER
+              while pos + ENTRY <= len(data):
+                  uuid = data[pos:pos + 16]
+                  off, size, flags = struct.unpack_from('<QQQ', data, pos + 16)
+                  if uuid == b'\0' * 16:
+                      break
+                  if off + size > len(data):
+                      raise SystemExit(f'FIP entry outside donor: off=0x{off:x} size=0x{size:x}')
+                  entries.append((pos, uuid, off, size, flags))
+                  pos += ENTRY
+              return entries
+
+          def main() -> int:
+              ap = argparse.ArgumentParser()
+              ap.add_argument('--donor', type=Path, required=True)
+              ap.add_argument('--bl33', type=Path, required=True)
+              ap.add_argument('--output', type=Path, required=True)
+              args = ap.parse_args()
+              donor = args.donor.read_bytes()
+              bl33 = args.bl33.read_bytes()
+              entries = parse(donor)
+              nts = [e for e in entries if e[1] == NT_FW_UUID]
+              if len(nts) != 1:
+                  raise SystemExit(f'expected exactly one BL33/nt-fw entry, found {len(nts)}')
+              pos, _uuid, off, old_size, _flags = nts[0]
+              later = [e for e in entries if e[2] > off]
+              if later:
+                  raise SystemExit('BL33 is not the last payload in donor; refusing in-place lineage-preserving repack')
+              end = off + len(bl33)
+              if end > NT_END_MAX:
+                  raise SystemExit(f'BL33 exceeds persistent FIP boundary: end=0x{end:x} max=0x{NT_END_MAX:x}')
+              if len(donor) > FIP_FILE_MAX:
+                  raise SystemExit(f'donor FIP exceeds file boundary: 0x{len(donor):x} > 0x{FIP_FILE_MAX:x}')
+              if end > len(donor):
+                  raise SystemExit(f'BL33 does not fit donor container: end=0x{end:x} donor=0x{len(donor):x}')
+
+              out = bytearray(donor)
+              # Size is the second QWORD after UUID: UUID + offset + size.
+              struct.pack_into('<Q', out, pos + 24, len(bl33))
+              out[off:end] = bl33
+              # Keep all donor bytes beyond the new payload untouched. They are outside
+              # the BL33 entry and preserve the proven FIP/container footprint.
+              args.output.parent.mkdir(parents=True, exist_ok=True)
+              args.output.write_bytes(out)
+
+              verify = args.output.read_bytes()
+              ventries = parse(verify)
+              vnt = [e for e in ventries if e[1] == NT_FW_UUID][0]
+              extracted = verify[vnt[2]:vnt[2] + vnt[3]]
+              if extracted != bl33:
+                  raise SystemExit('repacked BL33 does not byte-match build payload')
+              for e0, e1 in zip(entries, ventries):
+                  if e0[1] != NT_FW_UUID:
+                      if e0[1:] != e1[1:]:
+                          raise SystemExit('non-BL33 FIP table entry changed')
+                      if donor[e0[2]:e0[2] + e0[3]] != verify[e1[2]:e1[2] + e1[3]]:
+                          raise SystemExit('non-BL33 FIP payload changed')
+              print('FIP_REPACK=PASS',
+                    f'donor_sha256={hashlib.sha256(donor).hexdigest()}',
+                    f'bl33_sha256={hashlib.sha256(bl33).hexdigest()}',
+                    f'output_sha256={hashlib.sha256(verify).hexdigest()}',
+                    f'bl33_old={old_size}', f'bl33_new={len(bl33)}',
+                    f'bl33_end=0x{end:x}', f'margin={NT_END_MAX-end}')
+              return 0
+
+          if __name__ == '__main__':
+              raise SystemExit(main())
+          PY
+          chmod +x scripts/repack-fip.py
+
+          cat > scripts/lzma1ext_noeopm.c <<'C'
+          // SPDX-License-Identifier: 0BSD
+          // Host-side packer for the Airoha persistent FIP BL33 contract.
+          // Emits an LZMA-alone header followed by LZMA1EXT raw data WITHOUT EOPM.
+          #include <errno.h>
+          #include <inttypes.h>
+          #include <lzma.h>
+          #include <stdint.h>
+          #include <stdio.h>
+          #include <stdlib.h>
+
+          static void put32le(uint8_t *p, uint32_t v) {
+              for (unsigned i = 0; i < 4; ++i) p[i] = (uint8_t)(v >> (8 * i));
+          }
+          static void put64le(uint8_t *p, uint64_t v) {
+              for (unsigned i = 0; i < 8; ++i) p[i] = (uint8_t)(v >> (8 * i));
+          }
+          static uint8_t *read_all(const char *path, size_t *len) {
+              FILE *f = fopen(path, "rb");
+              if (!f) { perror(path); return NULL; }
+              if (fseek(f, 0, SEEK_END) || ftell(f) < 0) { perror("fseek/ftell"); fclose(f); return NULL; }
+              long n = ftell(f);
+              rewind(f);
+              uint8_t *p = malloc((size_t)n ? (size_t)n : 1);
+              if (!p) { fclose(f); return NULL; }
+              if (fread(p, 1, (size_t)n, f) != (size_t)n) { perror("fread"); free(p); fclose(f); return NULL; }
+              fclose(f); *len = (size_t)n; return p;
+          }
+          int main(int argc, char **argv) {
+              if (argc != 4) { fprintf(stderr, "usage: %s IN OUT DICT_SIZE\n", argv[0]); return 2; }
+              char *endp = NULL;
+              unsigned long dict_ul = strtoul(argv[3], &endp, 0);
+              if (!endp || *endp || dict_ul > UINT32_MAX || dict_ul < 4096) { fprintf(stderr, "invalid dict size\n"); return 2; }
+              size_t in_len = 0;
+              uint8_t *in = read_all(argv[1], &in_len);
+              if (!in) return 1;
+
+              lzma_options_lzma opt;
+              if (lzma_lzma_preset(&opt, 9)) { fprintf(stderr, "lzma preset failed\n"); free(in); return 1; }
+              opt.dict_size = (uint32_t)dict_ul;
+              opt.ext_flags = 0; // explicitly prohibit EOPM
+              opt.ext_size_low = (uint32_t)(in_len & UINT32_MAX);
+              opt.ext_size_high = (uint32_t)(((uint64_t)in_len) >> 32);
+              lzma_filter filters[2] = {
+                  { .id = LZMA_FILTER_LZMA1EXT, .options = &opt },
+                  { .id = LZMA_VLI_UNKNOWN, .options = NULL }
+              };
+
+              size_t cap = in_len + in_len / 3 + (1u << 20) + 64;
+              uint8_t *raw = malloc(cap);
+              if (!raw) { free(in); return 1; }
+              size_t out_pos = 0;
+              lzma_ret ret = lzma_raw_buffer_encode(filters, NULL, in, in_len, raw, &out_pos, cap);
+              if (ret != LZMA_OK) { fprintf(stderr, "lzma_raw_buffer_encode failed: %d\n", (int)ret); free(raw); free(in); return 1; }
+
+              FILE *o = fopen(argv[2], "wb");
+              if (!o) { perror(argv[2]); free(raw); free(in); return 1; }
+              uint8_t hdr[13];
+              hdr[0] = (uint8_t)((opt.pb * 5 + opt.lp) * 9 + opt.lc);
+              put32le(hdr + 1, opt.dict_size);
+              put64le(hdr + 5, (uint64_t)in_len);
+              if (fwrite(hdr, 1, sizeof(hdr), o) != sizeof(hdr) || fwrite(raw, 1, out_pos, o) != out_pos || fclose(o)) {
+                  perror("write"); free(raw); free(in); return 1;
+              }
+              fprintf(stdout, "LZMA1EXT_PACK=PASS raw=%zu packed=%zu dict=%u eopm=0\n", in_len, out_pos + sizeof(hdr), opt.dict_size);
+              free(raw); free(in); return 0;
+          }
+          C
+
+          cat > scripts/qa.sh <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+          python3 -m py_compile "$ROOT"/scripts/*.py
+          ROOT="$ROOT" python3 - <<'PY'
+          from pathlib import Path
+          import os, json, hashlib
+          r = Path(os.environ['ROOT'])
+          checks = {
+              'boards/nokia-xg040-md/stock-mtd0-template.bin': '0256f49128aa00e2b5c2d613c1ae9b06d2278010',
+              'boards/nokia-xg040-mf/stock-mtd0-template.bin': '54250bac7bb00b0938b7702df2ea522c4464a0cd',
+          }
+          for rel, want in checks.items():
+              b = (r / rel).read_bytes()
+              assert len(b) == 0x80000, (rel, len(b))
+              got = hashlib.sha1(f'blob {len(b)}\0'.encode() + b).hexdigest()
+              assert got == want, (rel, got)
+          f = (r / 'reference/md/ursusboot-test61-update.fip').read_bytes()
+          assert len(f) == 503808 and f[:4] == b'\x01\x00\x64\xaa'
+          print('board templates + TEST61 FIP: PASS')
+
+          reg = json.loads((r / 'config/board-profiles.json').read_text())
+          for name, prof in reg['profiles'].items():
+              for field, base in (('config', 'config'), ('boot_area_template', ''), ('reference_fip', '')):
+                  if field not in prof:
+                      raise SystemExit(f'profile {name}: field {field} is not declared')
+                  value = prof[field]
+                  if value is None:
+                      continue
+                  path = r / base / value if base else r / value
+                  if not path.is_file():
+                      raise SystemExit(f'profile {name}: {field} points at missing {path}')
+              role = prof['default_role']
+              if role not in prof['allowed_roles'] or role not in reg['runtime_roles']:
+                  raise SystemExit(f'profile {name}: default_role {role} is not a valid role')
+          print('board profile paths + roles: PASS')
+          PY
+          for p in Makefile Kconfig arch board common drivers include net; do
+              test -e "$ROOT/src/u-boot/$p" || { echo "missing complete source path: src/u-boot/$p" >&2; exit 1; }
+          done
+          grep -q 'Repository policy: self-contained' "$ROOT/README.md"
+
+          if grep -qE '^\s*(xg040-md|xg040-mf|xg140-md)\)' "$ROOT/build.sh"; then
+              echo 'build.sh hardcodes board names; use config/board-profiles.json' >&2
+              exit 1
+          fi
+          for helper in resolve_board_profile.py apply_runtime_role.py make-install-mtd0.py repack-fip.py lzma1ext_noeopm.c; do
+              grep -q "$helper" "$ROOT/build.sh" || { echo "build.sh no longer uses $helper" >&2; exit 1; }
+          done
+          grep -q -- '--donor' "$ROOT/scripts/repack-fip.py"
+          grep -q 'NT_END_MAX = 0x77800' "$ROOT/scripts/repack-fip.py"
+
+          if grep -R -nE 'vendor-baseline|git clone .*airoha-router-ursusflasher|raw\.githubusercontent\.com/Medvedolog/airoha-router-ursusflasher|codeload\.github\.com/Medvedolog/airoha-router-ursusflasher' "$ROOT" --exclude='PROVENANCE.md' --exclude='qa.sh'; then
+              echo 'unexpected build/runtime dependency on the old repository' >&2
+              exit 1
+          fi
+
+          # Shared lwIP ownership contract.
+          grep -q 'Network busy: active lwIP interface' "$ROOT/src/u-boot/net/lwip/net-lwip.c"
+          grep -q 'bool borrowed = false' "$ROOT/src/u-boot/cmd/lwip/ping.c"
+          grep -q 'bool borrowed = false' "$ROOT/src/u-boot/net/lwip/tftp.c"
+          grep -q 'URSUS_CONSOLE_DEFER' "$ROOT/src/u-boot/cmd/ursusweb.c"
+          grep -q 'URSUS_WEB_STOP_REQUEST source=UART' "$ROOT/src/u-boot/cmd/ursusweb.c"
+          grep -q 'URSUS_WEB_STOPPED restart=ursusweb' "$ROOT/src/u-boot/cmd/ursusweb.c"
+
+          # Negative profile/role contract tests.
+          if python3 "$ROOT/scripts/resolve_board_profile.py" --registry "$ROOT/config/board-profiles.json" --profile xg040-md --role bogus --field runtime_role >/tmp/qa.out 2>&1; then
+              echo 'invalid runtime role unexpectedly accepted' >&2; exit 1
+          fi
+          grep -q "does not allow runtime role 'bogus'" /tmp/qa.out
+          if python3 "$ROOT/scripts/resolve_board_profile.py" --registry "$ROOT/config/board-profiles.json" --profile xg140-md --field config >/tmp/qa.out 2>&1; then
+              echo 'unbuildable xg140-md unexpectedly exposed a config' >&2; exit 1
+          fi
+          grep -q "declares no 'config' yet" /tmp/qa.out
+
+          echo URSUSBOOT_STANDALONE_QA=PASS
+          EOF
+          chmod +x scripts/qa.sh
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('README.md')
+          s = p.read_text()
+          s = s.replace(
+              '> These TFTP paths run from the dispatcher or the console **instead of** WebFailsafe, not alongside it. WebFailsafe itself never issues a network command.',
+              '> `ping` and `tftpboot` are shared-netif aware: while WebFailsafe owns Ethernet they borrow its live lwIP netif instead of tearing it down. Other network commands fail closed while the WebFailsafe netif is active. UART `Ctrl-C` stops WebFailsafe and `ursusweb` starts it again.'
+          )
+          s = s.replace(
+              '| `scripts/make-install-mtd0.py` | Merge a 512 KiB stock boot-area template with a FIP into a flashable `mtd0` image. Validates size, FIP magic and that the FIP does not overlap the preserved env area. Prints the SHA256. |',
+              '| `scripts/repack-fip.py` | Preserve a proven reference FIP and replace only its BL33 payload with the U-Boot produced by the current build; verifies byte identity and the persistent-FIP boundary. |\n| `scripts/lzma1ext_noeopm.c` | Host-side LZMA1EXT packer for BL33; emits the Airoha-compatible LZMA-alone stream without EOPM. |\n| `scripts/make-install-mtd0.py` | Merge the board 512 KiB boot-area template with the newly repacked FIP into a flashable `mtd0` image. |'
+          )
+          s = s.replace(
+              'The only external build dependency permitted by policy is an **OpenWrt SDK/toolchain** appropriate for the target Airoha SoC.',
+              'The only external target build dependency permitted by policy is an **OpenWrt SDK/toolchain** appropriate for the target Airoha SoC. The host also needs a C compiler and liblzma development headers for the BL33 packer.'
+          )
+          s = s.replace(
+              'This emits `dist/xg040-md/ursusboot-install-mtd0.bin`.',
+              'This emits `dist/xg040-md/u-boot.bin`, `u-boot.lzma`, a newly repacked `ursusboot-update.fip`, and `ursusboot-install-mtd0.bin`. The install image therefore contains the U-Boot produced by the same build, not the BL33 payload from the reference FIP.'
+          )
+          p.write_text(s)
+          PY
+
+          git diff --check
+          ./scripts/qa.sh
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add build.sh README.md config/board-profiles.json scripts/resolve_board_profile.py scripts/qa.sh scripts/repack-fip.py scripts/lzma1ext_noeopm.c
+          git commit -m 'build: make standalone pipeline data-driven and repack current BL33'
+          git push origin HEAD:main
