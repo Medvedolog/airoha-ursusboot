@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - scripts/apply-shared-netif.py
+      - .github/workflows/run-shared-netif-patch.yml
 permissions:
   contents: write
 jobs:
