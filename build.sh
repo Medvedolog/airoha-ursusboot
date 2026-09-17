@@ -2,7 +2,7 @@
 # Build UrsusBoot for one board profile and, when a reference FIP lineage is
 # available, emit a current-source FIP plus a ready-to-flash 512 KiB mtd0 image.
 #
-#   OPENWRT_SDK=/path/to/sdk ./build.sh [board] [runtime-role] [sdk]
+#   OPENWRT_SDK=/path/to/sdk-or-toolchain ./build.sh [board] [runtime-role] [sdk]
 #
 # Board inputs and runtime roles come from config/board-profiles.json.
 set -euo pipefail
@@ -22,7 +22,6 @@ profile_field() {
         ${role_args[@]+"${role_args[@]}"} --field "$1"
 }
 
-# Resolving the role validates it against allowed_roles.
 ROLE="$(profile_field runtime_role)"
 CONFIG_NAME="$(profile_field config)"
 TEMPLATE_NAME="$(profile_field boot_area_template)"
@@ -31,17 +30,30 @@ TEMPLATE="$ROOT/$TEMPLATE_NAME"
 [ -f "$CONFIG" ] || { echo "board $BOARD: missing config $CONFIG" >&2; exit 3; }
 [ -f "$TEMPLATE" ] || { echo "board $BOARD: missing boot-area template $TEMPLATE" >&2; exit 3; }
 
-: "${SDK:?Set OPENWRT_SDK to an extracted OpenWrt SDK/toolchain}"
-export STAGING_DIR="$SDK/staging_dir"
-[ -d "$STAGING_DIR" ] || { echo "OpenWrt staging_dir not found under $SDK" >&2; exit 3; }
+: "${SDK:?Set OPENWRT_SDK to an extracted official OpenWrt SDK/toolchain}"
+[ -d "$SDK" ] || { echo "OpenWrt SDK/toolchain directory not found: $SDK" >&2; exit 3; }
 
-CROSS="$(find "$STAGING_DIR" -type f \
+# Support both full OpenWrt SDKs (with staging_dir/) and official standalone
+# OpenWrt toolchain bundles (where toolchain-* is the package root).
+if [ -d "$SDK/staging_dir" ]; then
+    export STAGING_DIR="$SDK/staging_dir"
+    SEARCH_ROOT="$STAGING_DIR"
+else
+    SEARCH_ROOT="$SDK"
+    export STAGING_DIR="$SDK"
+fi
+
+CROSS="$(find "$SEARCH_ROOT" -type f \
     \( -name 'aarch64-openwrt-linux-musl-gcc' -o -name 'aarch64-openwrt-linux-gcc' \) | head -1 || true)"
-[ -n "$CROSS" ] || { echo 'AArch64 compiler not found in OpenWrt SDK/toolchain' >&2; exit 3; }
+[ -n "$CROSS" ] || { echo "AArch64 OpenWrt compiler not found under $SDK" >&2; exit 3; }
 export CROSS_COMPILE="${CROSS%gcc}"
 
-# Prefer OpenWrt host tools when an SDK supplies them.
-HOST_DIR="$(find "$STAGING_DIR" -maxdepth 1 -type d -name 'host*' | head -1 || true)"
+# Prefer OpenWrt host tools when a full SDK supplies them; standalone toolchain
+# bundles use normal host tools from PATH.
+HOST_DIR=""
+if [ -d "$SDK/staging_dir" ]; then
+    HOST_DIR="$(find "$SDK/staging_dir" -maxdepth 1 -type d -name 'host*' | head -1 || true)"
+fi
 if [ -n "$HOST_DIR" ] && [ -d "$HOST_DIR/bin" ]; then
     export STAGING_DIR_HOST="$HOST_DIR"
     export PATH="${CROSS%/*}:$HOST_DIR/bin:$PATH"
@@ -50,8 +62,6 @@ else
     export PATH="${CROSS%/*}:$PATH"
 fi
 
-# Runtime role is source-level. A ram-recovery build therefore needs a clean
-# checkout before switching back to persistent.
 python3 "$ROOT/scripts/apply_runtime_role.py" "$ROOT/src/u-boot" --role "$ROLE" || {
     echo "runtime role $ROLE could not be applied; restore the tree with:" >&2
     echo "  git checkout -- src/u-boot/defenvs src/u-boot/include" >&2
@@ -66,8 +76,6 @@ OUT="$ROOT/dist/$BOARD"
 mkdir -p "$OUT"
 cp "$ROOT/src/u-boot/u-boot.bin" "$OUT/u-boot.bin"
 
-# A board without reference_fip can still produce raw U-Boot, but there is no
-# proven early-boot lineage from which to build a flashable FIP yet.
 REF="${URSUS_FIP_TEMPLATE:-${URSUS_FIP:-}}"
 if [ -z "$REF" ]; then
     REF_NAME="$(profile_field reference_fip 2>/dev/null || true)"
@@ -86,8 +94,6 @@ if [ -n "$REF" ]; then
     python3 "$ROOT/src/u-boot/repack_persistent_fip.py" \
         "$REF" "$OUT/u-boot.lzma" "$FIP_OUT"
 
-    # Prove that the final NT_FW/BL33 payload is exactly the compressed image
-    # just generated from this build, not the payload from the reference FIP.
     python3 - "$FIP_OUT" "$OUT/u-boot.lzma" <<'PY'
 import hashlib, struct, sys
 from pathlib import Path
