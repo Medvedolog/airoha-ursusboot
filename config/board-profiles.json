@@ -28,7 +28,13 @@
       "environment_policy": "ubi-redundant",
       "derivation": "native-md",
       "default_role": "persistent",
-      "allowed_roles": ["persistent", "ram-recovery"]
+      "allowed_roles": [
+        "persistent",
+        "ram-recovery"
+      ],
+      "config": "u-boot.TEST61.full.config",
+      "boot_area_template": "boards/nokia-xg040-md/stock-mtd0-template.bin",
+      "reference_fip": "reference/md/ursusboot-test61-update.fip"
     },
     "xg040-mf": {
       "vendor": "Nokia",
@@ -47,7 +53,13 @@
       "environment_policy": "ubi-redundant",
       "derivation": "native-mf",
       "default_role": "persistent",
-      "allowed_roles": ["persistent", "ram-recovery"]
+      "allowed_roles": [
+        "persistent",
+        "ram-recovery"
+      ],
+      "config": "an7583_nokia_xg-040g-mf_MF2_RAM_defconfig",
+      "boot_area_template": "boards/nokia-xg040-mf/stock-mtd0-template.bin",
+      "reference_fip": null
     },
     "xg140-md": {
       "vendor": "Bell/Nokia",
@@ -66,7 +78,13 @@
       "environment_policy": "vendor-env-preserved",
       "derivation": "md-derived",
       "default_role": "persistent",
-      "allowed_roles": ["persistent", "ram-recovery"]
+      "allowed_roles": [
+        "persistent",
+        "ram-recovery"
+      ],
+      "config": null,
+      "boot_area_template": null,
+      "reference_fip": null
     }
   }
 }
