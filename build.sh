@@ -31,7 +31,7 @@ else
     SEARCH_ROOT="$SDK"
     export STAGING_DIR="$SDK"
 fi
-CROSS="$(find "$SEARCH_ROOT" -type f \
+CROSS="$(find "$SEARCH_ROOT" \( -type f -o -type l \) \
     \( -name 'aarch64-openwrt-linux-musl-gcc' -o -name 'aarch64-openwrt-linux-gcc' \) | head -1 || true)"
 [ -n "$CROSS" ] || { echo "AArch64 OpenWrt compiler not found under $SDK" >&2; exit 3; }
 export CROSS_COMPILE="${CROSS%gcc}"
