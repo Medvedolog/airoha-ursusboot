@@ -185,6 +185,7 @@ static int tftp_loop(struct udevice *udev, ulong addr, char *fname,
 {
 	int blksize = CONFIG_TFTP_BLOCKSIZE;
 	struct netif *netif;
+	bool borrowed = false;
 	struct tftp_ctx ctx;
 	const char *ep;
 	err_t err;
@@ -195,9 +196,16 @@ static int tftp_loop(struct udevice *udev, ulong addr, char *fname,
 	if (!srvport)
 		srvport = TFTP_PORT;
 
-	netif = net_lwip_new_netif(udev);
-	if (!netif)
-		return -1;
+	netif = net_lwip_get_netif();
+	if (netif) {
+		if (netif->state != udev)
+			return -EBUSY;
+		borrowed = true;
+	} else {
+		netif = net_lwip_new_netif(udev);
+		if (!netif)
+			return -1;
+	}
 
 	ctx.done = NOT_DONE;
 	ctx.size = 0;
@@ -226,7 +234,8 @@ static int tftp_loop(struct udevice *udev, ulong addr, char *fname,
 	/* might return different errors, like routing problems */
 	if (err != ERR_OK) {
 		printf("tftp_get() error %d\n", err);
-		net_lwip_remove_netif(netif);
+		if (!borrowed)
+			net_lwip_remove_netif(netif);
 		return -1;
 	}
 
@@ -243,7 +252,8 @@ static int tftp_loop(struct udevice *udev, ulong addr, char *fname,
 
 	tftp_cleanup();
 
-	net_lwip_remove_netif(netif);
+	if (!borrowed)
+		net_lwip_remove_netif(netif);
 
 	if (ctx.done == SUCCESS) {
 		if (env_set_hex("fileaddr", addr)) {

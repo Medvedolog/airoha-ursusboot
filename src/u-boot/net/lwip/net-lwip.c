@@ -239,7 +239,13 @@ static struct netif *new_netif(struct udevice *udev, bool with_ip)
 		return NULL;
 	}
 
-	netif_remove(net_lwip_get_netif());
+	/* Never tear down an already-live lwIP netif implicitly. Long-lived
+	 * services such as UrsusWeb own it; borrow-aware ping/TFTP reuse it. */
+	if (net_lwip_get_netif()) {
+		printf("Network busy: active lwIP interface is owned by another service.\n"
+		       "Stop WebFailsafe with Ctrl-C, run the command, then restart with 'ursusweb'.\n");
+		return NULL;
+	}
 
 	ip4_addr_set_zero(&ip);
 	ip4_addr_set_zero(&mask);

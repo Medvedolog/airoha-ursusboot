@@ -120,11 +120,19 @@ static int ping_loop(struct udevice *udev, const ip_addr_t *addr)
 {
 	struct ping_ctx ctx = {};
 	struct netif *netif;
+	bool borrowed = false;
 	int ret;
 
-	netif = net_lwip_new_netif(udev);
-	if (!netif)
-		return -ENODEV;
+	netif = net_lwip_get_netif();
+	if (netif) {
+		if (netif->state != udev)
+			return -EBUSY;
+		borrowed = true;
+	} else {
+		netif = net_lwip_new_netif(udev);
+		if (!netif)
+			return -ENODEV;
+	}
 
 	printf("Using %s device\n", udev->name);
 
@@ -151,7 +159,8 @@ static int ping_loop(struct udevice *udev, const ip_addr_t *addr)
 	sys_untimeout(ping_send, &ctx);
 	ping_raw_stop(&ctx);
 
-	net_lwip_remove_netif(netif);
+	if (!borrowed)
+		net_lwip_remove_netif(netif);
 
 	if (ctx.alive)
 		return 0;

@@ -234,6 +234,21 @@ struct ursus_conn {
     bool reboot_after_response;
 };
 
+/* Web-console commands are deferred out of the TCP receive callback so a
+ * command may safely pump the already-live lwIP netif (ping/TFTP). */
+static struct tcp_pcb *ursus_console_pending_pcb;
+static struct ursus_conn *ursus_console_pending_conn;
+static char ursus_console_pending_cmd[256];
+
+static void ursus_console_pending_clear(struct ursus_conn *c)
+{
+    if (!c || ursus_console_pending_conn == c) {
+        ursus_console_pending_pcb = NULL;
+        ursus_console_pending_conn = NULL;
+        ursus_console_pending_cmd[0] = 0;
+    }
+}
+
 static void ursus_log_reset(void)
 {
     ursus_web_log_len = 0;
@@ -1758,6 +1773,7 @@ static void ursus_conn_release(struct tcp_pcb *pcb, struct ursus_conn *c, bool a
                 tcp_abort(pcb);
         }
     }
+    ursus_console_pending_clear(c);
     free(c);
     if (stop)
         ursus_stop = true;
@@ -2029,6 +2045,31 @@ static void ursus_console_capture(const char *cmd)
            avail, (unsigned int)strlen(ursus_console_body), ret, read_err);
 }
 
+static void ursus_console_service_pending(void)
+{
+    struct tcp_pcb *pcb = ursus_console_pending_pcb;
+    struct ursus_conn *c = ursus_console_pending_conn;
+    char cmd[sizeof(ursus_console_pending_cmd)];
+    err_t err;
+
+    if (!pcb || !c || !ursus_console_pending_cmd[0])
+        return;
+
+    snprintf(cmd, sizeof(cmd), "%s", ursus_console_pending_cmd);
+    ursus_console_capture(cmd);
+
+    if (ursus_console_pending_pcb != pcb || ursus_console_pending_conn != c)
+        return;
+
+    ursus_console_pending_pcb = NULL;
+    ursus_console_pending_conn = NULL;
+    ursus_console_pending_cmd[0] = 0;
+    err = ursus_http_start_response(pcb, c, 200, "text/plain; charset=utf-8",
+                                    ursus_console_body);
+    if (err != ERR_OK)
+        ursus_conn_release(pcb, c, true);
+}
+
 static int ursus_console_capture_selftest(void)
 {
     ursus_console_capture("echo URSUS_CONSOLE_CAPTURE_SELFTEST");
@@ -2065,8 +2106,14 @@ static err_t ursus_route_ready(struct tcp_pcb *pcb, struct ursus_conn *c)
             !ursus_decode_filename(encoded, cmd, sizeof(cmd)) || !cmd[0])
             return ursus_http_start_response(pcb, c, 400, "application/json",
                 "{\"result\":\"REJECTED\",\"reason\":\"empty or invalid command\"}\n");
-        ursus_console_capture(cmd);
-        return ursus_http_start_response(pcb, c, 200, "text/plain; charset=utf-8", ursus_console_body);
+        if (ursus_console_pending_conn)
+            return ursus_http_start_response(pcb, c, 409, "text/plain; charset=utf-8",
+                "another Web console command is still running\n");
+        ursus_console_pending_pcb = pcb;
+        ursus_console_pending_conn = c;
+        snprintf(ursus_console_pending_cmd, sizeof(ursus_console_pending_cmd), "%s", cmd);
+        printf("URSUS_CONSOLE_DEFER cmd=%s\n", cmd);
+        return ERR_OK;
     }
     if (URSUS_REQ_MATCH(c->reqhdr, "POST /api/discard ")) {
         ursus_logf("UPLOAD DISCARD: kind=firmware generation=%s filename=%s declared=%u received=%u class=%s\n",
@@ -2409,6 +2456,7 @@ static void ursus_http_err(void *arg, err_t err)
 {
     struct ursus_conn *c = arg;
     printf("URSUS_HTTP_ERROR conn=%u err=%d\n", c ? c->id : 0, err);
+    ursus_console_pending_clear(c);
     free(c);
 }
 
@@ -2462,10 +2510,10 @@ static void ursus_uart_shell_poll(void)
             continue;
         }
         if (ch == 3) {
-            printf("^C\n");
+            printf("^C\nURSUS_WEB_STOP_REQUEST source=UART\n");
             ursus_uart_line_len = 0;
-            ursus_uart_shell_prompt();
-            continue;
+            ursus_stop = true;
+            return;
         }
         if (ch == 21) {
             while (ursus_uart_line_len) {
@@ -2570,8 +2618,11 @@ static int do_ursusweb(struct cmd_tbl *cmdtp, int flag, int argc, char *const ar
     ursus_stop = false;
     while (!ursus_stop) {
         ursus_uart_shell_poll();
+        if (ursus_stop)
+            break;
         ret = net_lwip_rx(ursus_web_udev, netif);
         ursus_rx_report(ret);
+        ursus_console_service_pending();
         sys_check_timeouts();
         ursus_led_poll();
         if (ursus_pending_reboot && ursus_reboot_response_queued &&
@@ -2638,6 +2689,8 @@ static int do_ursusweb(struct cmd_tbl *cmdtp, int flag, int argc, char *const ar
     if (own_eth) { net_lwip_eth_stop(); own_eth = false; }
     ursus_web_udev = NULL;
     ursus_web_running = false;
+    ursus_console_pending_clear(NULL);
+    printf("URSUS_WEB_STOPPED restart=ursusweb\n");
 
     if (ursus_network_failed)
         return CMD_RET_FAILURE;
