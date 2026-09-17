@@ -9,17 +9,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Host deps
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq liblzma-dev
-      - name: Download pinned OpenWrt Airoha SDK snapshot
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential liblzma-dev bison flex swig python3-dev libssl-dev bc device-tree-compiler pkg-config zstd
+      - name: Download official OpenWrt Airoha toolchain snapshot
         shell: bash
         run: |
           set -euo pipefail
-          URL='https://downloads.openwrt.org/snapshots/targets/airoha/an7581/openwrt-sdk-airoha-an7581_gcc-14.4.0_musl.Linux-x86_64.tar.zst'
-          curl -fL "$URL" -o /tmp/sdk.tar.zst
-          echo '5f34d4c9119ff3f2e8ff3f00262707ae07c9bb87752efc392aad498caef02abf  /tmp/sdk.tar.zst' | sha256sum -c -
-          mkdir -p /tmp/sdk
-          tar --zstd -xf /tmp/sdk.tar.zst -C /tmp/sdk
-          SDKROOT="$(find /tmp/sdk -mindepth 1 -maxdepth 1 -type d -name 'openwrt-sdk-*' | head -1)"
+          URL='https://downloads.openwrt.org/snapshots/targets/airoha/an7581/openwrt-toolchain-airoha-an7581_gcc-14.4.0_musl.Linux-x86_64.tar.zst'
+          curl --http1.1 -fL -C - --retry 8 --retry-all-errors --retry-delay 2 "$URL" -o /tmp/toolchain.tar.zst
+          echo '91085dd907eef147bd4b887ee72fab90b40657eabd23a90ea10bb881eb256f0f  /tmp/toolchain.tar.zst' | sha256sum -c -
+          mkdir -p /tmp/toolchain
+          tar --zstd -xf /tmp/toolchain.tar.zst -C /tmp/toolchain
+          SDKROOT="$(find /tmp/toolchain -mindepth 1 -maxdepth 1 -type d | head -1)"
           test -n "$SDKROOT"
           echo "SDKROOT=$SDKROOT" >> "$GITHUB_ENV"
       - name: Standalone QA
@@ -29,16 +29,10 @@ jobs:
         run: |
           set -euo pipefail
           OPENWRT_SDK="$SDKROOT" ./build.sh xg040-md persistent
-          ls -l dist/xg040-md
-          sha256sum dist/xg040-md/*
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('dist/xg040-md')
-          for n in ['u-boot.bin','u-boot.lzma','ursusboot-update.fip','ursusboot-install-mtd0.bin']:
-              f=p/n
-              print(f'BUILD_ARTIFACT {n} size={f.stat().st_size}')
-          assert (p/'ursusboot-install-mtd0.bin').stat().st_size == 0x80000
-          PY
+          ls -lh dist/xg040-md
+          stat -c '%n %s bytes' dist/xg040-md/u-boot.bin dist/xg040-md/u-boot.lzma dist/xg040-md/ursusboot-update.fip dist/xg040-md/ursusboot-install-mtd0.bin
+          cat dist/xg040-md/SHA256SUMS
+          test "$(stat -c %s dist/xg040-md/ursusboot-install-mtd0.bin)" -eq 524288
       - uses: actions/upload-artifact@v4
         with:
           name: ursusboot-xg040-md-build
