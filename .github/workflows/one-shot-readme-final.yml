@@ -1,0 +1,54 @@
+name: One-shot reviewed README import
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/one-shot-readme-final.yml']
+permissions:
+  contents: write
+jobs:
+  import:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Import and correct README
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL 'https://raw.githubusercontent.com/Medvedolog/airoha-router-ursusflasher/claude/eloquent-heisenberg-78tcii/patches/ursusboot-standalone/ursusboot-README.md' -o README.md
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('README.md'); s=p.read_text()
+          s=s.replace(
+              'The only external build dependency permitted by policy is an **OpenWrt SDK/toolchain** appropriate for the target Airoha SoC.',
+              'The only external target build dependency permitted by policy is an **official OpenWrt SDK/toolchain** appropriate for the target AArch64 target. The host also needs a C compiler and liblzma development headers for the proven BL33 LZMA1EXT/no-EOPM packer.'
+          )
+          s=s.replace(
+              'URSUS_FIP=reference/md/ursusboot-test61-update.fip \\\n  ./build.sh xg040-md persistent',
+              'OPENWRT_SDK=/path/to/openwrt-sdk ./build.sh xg040-md persistent'
+          )
+          s=s.replace(
+              'This emits `dist/xg040-md/ursusboot-install-mtd0.bin`.',
+              'This emits `u-boot.bin`, `u-boot.lzma`, a newly repacked `ursusboot-update.fip`, and `ursusboot-install-mtd0.bin` under `dist/xg040-md/`. The reference FIP supplies the proven platform lineage; its BL33 is replaced with the U-Boot produced by the same build and verified byte-for-byte before the install image is emitted.'
+          )
+          s=s.replace(
+              '| `scripts/make-install-mtd0.py` | Merge a 512 KiB stock boot-area template with a FIP into a flashable `mtd0` image. Validates size, FIP magic and that the FIP does not overlap the preserved env area. Prints the SHA256. |',
+              '| `src/u-boot/repack_persistent_fip.py` | Preserve the proven reference FIP lineage while replacing its BL33 payload with the U-Boot produced by the current build. |\n| `src/u-boot/lzma1ext_noeopm.c` | Proven host-side LZMA1EXT/no-EOPM packer for the Airoha BL33 contract. |\n| `scripts/make-install-mtd0.py` | Merge the board 512 KiB boot-area template with the newly repacked FIP into a flashable `mtd0` image. |'
+          )
+          s=s.replace(
+              '> These TFTP paths run from the dispatcher or the console **instead of** WebFailsafe, not alongside it. WebFailsafe itself never issues a network command.',
+              '> `ping` and `tftpboot` are shared-netif aware. While WebFailsafe owns Ethernet they borrow its live lwIP netif instead of tearing it down. Other network commands fail closed while that netif is active. From UART, `Ctrl-C` stops WebFailsafe; run `ursusweb` to start it again.'
+          )
+          s=s.replace(
+              '`OPENWRT_SDK` (or the third positional argument) must point at an extracted OpenWrt SDK; the AArch64 cross compiler is located inside it automatically.',
+              '`OPENWRT_SDK` (or the third positional argument) may point at an extracted OpenWrt SDK or standalone OpenWrt AArch64 toolchain; the cross compiler is located inside it automatically.'
+          )
+          p.write_text(s)
+          PY
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md
+          git commit -m 'docs: import reviewed standalone architecture guide'
+          git push origin HEAD:main
