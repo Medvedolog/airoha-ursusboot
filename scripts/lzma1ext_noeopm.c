@@ -1,0 +1,9 @@
+// SPDX-License-Identifier: 0BSD
+#include <lzma.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+static void put32le(uint8_t *p,uint32_t v){for(unsigned i=0;i<4;i++)p[i]=(uint8_t)(v>>(8*i));}
+static void put64le(uint8_t *p,uint64_t v){for(unsigned i=0;i<8;i++)p[i]=(uint8_t)(v>>(8*i));}
+static uint8_t *read_all(const char *path,size_t *len){FILE *f=fopen(path,"rb");if(!f){perror(path);return NULL;}if(fseek(f,0,SEEK_END)){fclose(f);return NULL;}long n=ftell(f);if(n<0){fclose(f);return NULL;}rewind(f);uint8_t *p=malloc((size_t)n? (size_t)n:1);if(!p){fclose(f);return NULL;}if(fread(p,1,(size_t)n,f)!=(size_t)n){free(p);fclose(f);return NULL;}fclose(f);*len=(size_t)n;return p;}
+int main(int argc,char **argv){if(argc!=4){fprintf(stderr,"usage: %s IN OUT DICT_SIZE\n",argv[0]);return 2;}char *e=NULL;unsigned long d=strtoul(argv[3],&e,0);if(!e||*e||d<4096||d>UINT32_MAX)return 2;size_t n=0;uint8_t *in=read_all(argv[1],&n);if(!in)return 1;lzma_options_lzma opt;if(lzma_lzma_preset(&opt,9)){free(in);return 1;}opt.dict_size=(uint32_t)d;opt.ext_flags=0;opt.ext_size_low=(uint32_t)n;opt.ext_size_high=(uint32_t)(((uint64_t)n)>>32);lzma_filter f[2]={{LZMA_FILTER_LZMA1EXT,&opt},{LZMA_VLI_UNKNOWN,NULL}};size_t cap=n+n/3+(1u<<20)+64,pos=0;uint8_t *raw=malloc(cap);if(!raw){free(in);return 1;}lzma_ret r=lzma_raw_buffer_encode(f,NULL,in,n,raw,&pos,cap);if(r!=LZMA_OK){fprintf(stderr,"lzma_raw_buffer_encode=%d\n",(int)r);free(raw);free(in);return 1;}FILE *o=fopen(argv[2],"wb");if(!o){free(raw);free(in);return 1;}uint8_t h[13];h[0]=(uint8_t)((opt.pb*5+opt.lp)*9+opt.lc);put32le(h+1,opt.dict_size);put64le(h+5,(uint64_t)n);if(fwrite(h,1,13,o)!=13||fwrite(raw,1,pos,o)!=pos||fclose(o)){free(raw);free(in);return 1;}printf("LZMA1EXT_PACK=PASS raw=%zu packed=%zu dict=%u eopm=0\n",n,pos+13,opt.dict_size);free(raw);free(in);return 0;}
