@@ -17,6 +17,9 @@ FIELDS = (
     "derivation",
     "default_role",
     "runtime_role",
+    "config",
+    "boot_area_template",
+    "reference_fip",
 )
 
 
@@ -78,6 +81,10 @@ def main() -> int:
     if args.field:
         value = profile.get(args.field)
         if value is None:
+            if args.field in profile:
+                raise SystemExit(
+                    f"profile {args.profile!r} declares no {args.field!r} yet"
+                )
             raise SystemExit(f"profile {args.profile!r} has no field {args.field!r}")
         print(value)
     elif args.json:
