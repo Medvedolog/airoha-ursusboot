@@ -19,9 +19,9 @@ jobs:
       - name: Fetch official OpenWrt AArch64 toolchain
         run: |
           set -euxo pipefail
-          curl -fL --retry 3 \
-            -o /tmp/openwrt-toolchain.tar.zst \
-            https://downloads.openwrt.org/snapshots/targets/mediatek/filogic/openwrt-toolchain-mediatek-filogic_gcc-14.4.0_musl.Linux-x86_64.tar.zst
+          URL=https://downloads.openwrt.org/snapshots/targets/mediatek/filogic/openwrt-toolchain-mediatek-filogic_gcc-14.4.0_musl.Linux-x86_64.tar.zst
+          curl --http1.1 -fL -C - --retry 8 --retry-all-errors --retry-delay 2 \
+            -o /tmp/openwrt-toolchain.tar.zst "$URL"
           mkdir -p /tmp/openwrt-toolchain
           tar --zstd -xf /tmp/openwrt-toolchain.tar.zst -C /tmp/openwrt-toolchain
           SDK_ROOT="$(find /tmp/openwrt-toolchain -mindepth 1 -maxdepth 1 -type d | head -1)"
