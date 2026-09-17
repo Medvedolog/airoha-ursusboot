@@ -2,7 +2,9 @@ name: One-shot xg040-md build
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/one-shot-build-md.yml']
+    paths:
+      - '.github/workflows/one-shot-build-md.yml'
+      - 'build.sh'
 jobs:
   build:
     runs-on: ubuntu-24.04
