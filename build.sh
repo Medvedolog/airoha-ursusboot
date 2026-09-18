@@ -57,16 +57,20 @@ make -C "$ROOT/src/u-boot" -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
 OUT="$ROOT/dist/$BOARD"
 mkdir -p "$OUT"
 cp "$ROOT/src/u-boot/u-boot.bin" "$OUT/u-boot.bin"
-REF="${URSUS_FIP_TEMPLATE:-${URSUS_FIP:-}}"
+REF="${URSUS_FIP_TEMPLATE:-${URSUS_FIP_DONOR:-${URSUS_FIP:-}}}"
 if [ -z "$REF" ]; then
     REF_NAME="$(profile_field reference_fip 2>/dev/null || true)"
     [ -n "$REF_NAME" ] && REF="$ROOT/$REF_NAME"
 fi
 if [ -n "$REF" ]; then
     [ -f "$REF" ] || { echo "board $BOARD: reference FIP not found: $REF" >&2; exit 5; }
-    command -v gcc >/dev/null || { echo 'host gcc is required for LZMA1EXT packaging' >&2; exit 5; }
+    HOSTCC="${HOSTCC:-gcc}"
+    command -v "$HOSTCC" >/dev/null || { echo "host C compiler not found: $HOSTCC" >&2; exit 5; }
     HOST_LZMA="$OUT/lzma1ext_noeopm"
-    gcc -O2 -Wall -Wextra "$ROOT/src/u-boot/lzma1ext_noeopm.c" -llzma -o "$HOST_LZMA"
+    "$HOSTCC" -O2 -Wall -Wextra "$ROOT/src/u-boot/lzma1ext_noeopm.c" -llzma -o "$HOST_LZMA" || {
+        echo 'cannot build the host LZMA1EXT packer (liblzma development headers missing?).' >&2
+        exit 5
+    }
     "$HOST_LZMA" "$OUT/u-boot.bin" "$OUT/u-boot.lzma" 1048576
     FIP_OUT="$OUT/ursusboot-update.fip"
     python3 "$ROOT/src/u-boot/repack_persistent_fip.py" "$REF" "$OUT/u-boot.lzma" "$FIP_OUT"
