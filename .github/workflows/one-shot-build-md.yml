@@ -24,7 +24,7 @@ jobs:
           test -n "$SDKROOT"
           echo "SDKROOT=$SDKROOT" >> "$GITHUB_ENV"
       - name: Standalone QA
-        run: ./scripts/qa.sh
+        run: bash ./scripts/qa.sh
       - name: Build xg040-md persistent
         shell: bash
         run: |
