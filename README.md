@@ -161,6 +161,8 @@ Variable semantics:
 
 If none of these variables is set, the board profile's `reference_fip` is used. The resulting `ursusboot-update.fip` is then checked to ensure that its NT_FW/BL33 entry is byte-for-byte the `u-boot.lzma` produced by the same build before the 512 KiB install image is emitted.
 
+Each build also writes `dist/<board>/SHA256SUMS` for the artifacts produced by that build. There is intentionally no repository-wide root `SHA256SUMS`: Git already identifies source blobs, while a hand-maintained whole-tree checksum manifest becomes stale as soon as the tree changes.
+
 The runtime role is applied **at source level** before the build: `ram-recovery` rewrites `bootcmd` in the default environment inside the tree, so it needs a clean checkout and cannot be applied twice in a row. Restore with:
 
 ```bash
@@ -293,10 +295,23 @@ UrsusBoot adds seven U-Boot commands. All of them are ordinary console commands 
 | `boot_tftp_write_fip`, `boot_tftp_write_bl2` | Fetch and write the bootloader over TFTP. |
 | `ubi_write_production`, `ubi_read_production` | Write/read the OpenWrt `fit` volume. |
 | `ubi_write_fip`, `ubi_create_env`, `ubi_format` | UBI volume management for the boot area. |
-| `ethaddr_factory` | Derive the factory MAC from the `ri` volume. |
-| `reset_factory` | Zero both `ubootenv` volumes back to defaults. |
+| `ethaddr_factory` | Refresh `ethaddr` from the `ri` volume on every boot, log the source explicitly, and fall back to the persisted MAC or finally a random recovery MAC if RI is unavailable/invalid. |
+| `reset_factory` | Recreate both environment copies from compiled defaults, refresh the RI MAC, then save both redundant env copies so a factory reset does not lose deterministic Ethernet identity. |
 
 > `ping` and `tftpboot` are shared-netif aware. While WebFailsafe owns Ethernet they borrow its live lwIP netif instead of tearing it down. Other network commands fail closed while that netif is active. From UART, `Ctrl-C` stops WebFailsafe; run `ursusweb` to start it again.
+
+## Recovery threat model
+
+UrsusBoot WebFailsafe is a **physical-recovery interface, not a general-purpose management plane**. Its security boundary is the recovery setup itself:
+
+- the HTTP service has no user authentication or TLS;
+- it listens on all IPv4 interfaces while WebFailsafe is active;
+- `/api/console` exposes the real unlocked U-Boot command line rather than an allowlisted shell;
+- nearby API endpoints can stage and commit firmware, UBI and bootloader writes after their normal confirmation checks.
+
+Use WebFailsafe on a **trusted, isolated direct Ethernet link** between the recovery workstation and the router. Do not leave the recovery interface attached to a shared LAN, switch fabric, Wi-Fi bridge, ISP/uplink network or any other untrusted L2 segment. Anyone who can reach WebFailsafe over the network should be treated as having recovery-level access comparable to someone with physical UART access.
+
+This is an intentional recovery tradeoff: physical access already exposes UART/BootROM recovery, so UrsusBoot prioritizes deterministic de-bricking and a fully capable console over an account/authentication layer inside the ~512 KiB bootloader budget.
 
 ## Web UI
 

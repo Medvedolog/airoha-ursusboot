@@ -33,11 +33,11 @@ boot_tftp_recovery=tftpboot $loadaddr $bootfile && env exists replacevol && imin
 boot_tftp=tftpboot $loadaddr $bootfile && bootm $loadaddr#$bootconf
 boot_tftp_write_bl2=mw.b $loadaddr 0xff 0x800 ; setexpr loadaddr_bl2 $loadaddr + 0x800 ; tftpboot $loadaddr_bl2 $bootfile_bl2 && run mtd_write_bl2
 boot_tftp_write_fip=tftpboot $loadaddr $bootfile_fip && run ubi_write_fip && run reset_factory
-preboot=led $bootled_status on
+preboot=run ethaddr_factory ; led $bootled_status on
 check_buttons=if button reset ; then run boot_tftp ; fi
-ethaddr_factory=ubi read 0x90000000 ri && env readmem -b ethaddr 0x9000003e 0x6 ; setenv ethaddr_factory
+ethaddr_factory=setenv _ethaddr_prev $ethaddr ; if ubi part ubi && ubi read 0x90000000 ri && env readmem -b ethaddr 0x9000003e 0x6 ; then if itest.s "$ethaddr" != "00:00:00:00:00:00" && itest.s "$ethaddr" != "ff:ff:ff:ff:ff:ff" ; then echo URSUS_MAC_SOURCE=RI ethaddr=$ethaddr ; else if env exists _ethaddr_prev ; then setenv ethaddr $_ethaddr_prev ; echo WARN: URSUS_MAC_INVALID_RI fallback=persisted ethaddr=$ethaddr ; else setenv ethaddr ; echo WARN: URSUS_MAC_INVALID_RI fallback=random ; fi ; fi ; else if env exists _ethaddr_prev ; then setenv ethaddr $_ethaddr_prev ; echo WARN: URSUS_MAC_RI_READ_FAIL fallback=persisted ethaddr=$ethaddr ; else setenv ethaddr ; echo WARN: URSUS_MAC_RI_READ_FAIL fallback=random ; fi ; fi ; setenv _ethaddr_prev
 part_default=production
-reset_factory=ubi part ubi ; mw $loadaddr 0x0 0x800 ; ubi write $loadaddr ubootenv 0x800 ; ubi write $loadaddr ubootenv2 0x800
+reset_factory=ubi part ubi && mw $loadaddr 0x0 0x800 && ubi write $loadaddr ubootenv 0x800 && ubi write $loadaddr ubootenv2 0x800 && env default -f -a && run ethaddr_factory && saveenv && saveenv
 mtd_write_bl2=mtd erase bl2 && mtd write bl2 $loadaddr
 ubi_create_board_data=ubi check bosa || ubi create bosa 0x40000 || run ubi_format ; ubi check ri || ubi create ri 0x40000 || run ubi_format
 ubi_create_env=ubi check ubootenv || ubi create ubootenv 0x1f000 dynamic || run ubi_format ; ubi check ubootenv2 || ubi create ubootenv2 0x1f000 dynamic || run ubi_format
