@@ -57,13 +57,16 @@ make -C "$ROOT/src/u-boot" -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
 OUT="$ROOT/dist/$BOARD"
 mkdir -p "$OUT"
 cp "$ROOT/src/u-boot/u-boot.bin" "$OUT/u-boot.bin"
-REF="${URSUS_FIP_TEMPLATE:-${URSUS_FIP_DONOR:-${URSUS_FIP:-}}}"
+# Donor FIP semantics: this container supplies the proven platform/FIP lineage.
+# Its NT_FW/BL33 payload is always replaced by the U-Boot built above.
+# URSUS_FIP_DONOR is canonical; the other two names are compatibility aliases.
+REF="${URSUS_FIP_DONOR:-${URSUS_FIP_TEMPLATE:-${URSUS_FIP:-}}}"
 if [ -z "$REF" ]; then
     REF_NAME="$(profile_field reference_fip 2>/dev/null || true)"
     [ -n "$REF_NAME" ] && REF="$ROOT/$REF_NAME"
 fi
 if [ -n "$REF" ]; then
-    [ -f "$REF" ] || { echo "board $BOARD: reference FIP not found: $REF" >&2; exit 5; }
+    [ -f "$REF" ] || { echo "board $BOARD: donor FIP not found: $REF" >&2; exit 5; }
     HOSTCC="${HOSTCC:-gcc}"
     command -v "$HOSTCC" >/dev/null || { echo "host C compiler not found: $HOSTCC" >&2; exit 5; }
     HOST_LZMA="$OUT/lzma1ext_noeopm"
