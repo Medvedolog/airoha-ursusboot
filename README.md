@@ -313,6 +313,26 @@ Use WebFailsafe on a **trusted, isolated direct Ethernet link** between the reco
 
 This is an intentional recovery tradeoff: physical access already exposes UART/BootROM recovery, so UrsusBoot prioritizes deterministic de-bricking and a fully capable console over an account/authentication layer inside the ~512 KiB bootloader budget.
 
+## Recovery MAC identity
+
+The recovery MAC is derived from the board's `ri` volume by `ethaddr_factory`, which `preboot` runs on **every** boot, not once per lifetime. `reset_factory` re-derives and saves it after wiping the environment, so a FIP write no longer leaves the device without a stable identity.
+
+Two ordering facts matter when reading a boot log, because U-Boot brings the Ethernet device up **before** `preboot` runs:
+
+```text
+board_r.c  INITCALL(initr_net)      -> eth probe -> eth_post_probe()
+board_r.c  INITCALL(run_main_loop)  -> main_loop() -> preboot -> ethaddr_factory
+```
+
+- If the environment already holds an `ethaddr` — the normal case once the MAC has been saved — the probe simply adopts it and nothing random happens.
+- If the environment holds none (a fresh unit, or the first boot after `reset_factory` wiped it), `eth_post_probe()` generates a random MAC, **writes it into the environment and programs it into the controller**, printing `Warning: <dev> (ethN) using random MAC address - <mac>`. Only afterwards does `ethaddr_factory` run and correct the environment from `ri`.
+
+So on a boot log, `Warning: ... using random MAC address` means the environment had no MAC at that moment; it does not by itself mean the fix failed. What must follow it is `URSUS_MAC_SOURCE=RI ethaddr=…`. A generated address is always locally administered (the `0x02` bit of the first octet is set — `x2:`, `x6:`, `xa:` or `xe:`), so it is trivially distinguishable from a factory Nokia address.
+
+The random fallback is deliberately kept rather than removed: a unit whose `ri` volume is damaged still has to reach WebFailsafe over the network, and that is exactly the de-bricking case. A missing MAC would make `eth_post_probe()` fail with `Error: No valid MAC address found` and take recovery-over-network away when it is needed most. `WARN:` lines from `ethaddr_factory` name which fallback was taken.
+
+Both board configurations set `CONFIG_ENV_OVERWRITE=y`. Without it the `ethaddr` environment flag is `mo` (write-once, see `include/env_flags.h`), every rewrite after the first `saveenv` is refused, and `ethaddr_factory` would report a spurious `URSUS_MAC_RI_READ_FAIL` on every boot while being unable to correct a wrong address. QA asserts this for both boards.
+
 ## Web UI
 
 WebFailsafe serves one self-contained page from flash — no external assets, no CDN, RU/EN switchable. Layout:
