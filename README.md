@@ -72,7 +72,7 @@ build.sh                  single build entry point
 scripts/                  host-side build and QA helpers
 config/                   Kconfig fragments, full configs, board profiles
 boards/                   board policy headers + 512 KiB stock boot-area templates
-reference/                reference FIP used when no URSUS_FIP is given
+reference/                proven donor/reference FIP lineage used for BL33 repacking
 src/u-boot/               complete U-Boot 2026.07 source tree with UrsusBoot on top
 dist/                     build output (git-ignored)
 ```
@@ -97,7 +97,7 @@ defenvs/                  per-board default environments
 
 | Script | Purpose |
 |---|---|
-| `build.sh` | Build U-Boot for a board and, when a FIP is available, emit a ready `mtd0` install image. |
+| `build.sh` | Build U-Boot for a board, repack the current BL33 into a proven donor/reference FIP, and emit a ready `mtd0` install image. |
 | `src/u-boot/repack_persistent_fip.py` | Preserve the proven reference FIP lineage while replacing its BL33 payload with the U-Boot produced by the current build. |
 | `src/u-boot/lzma1ext_noeopm.c` | Proven host-side LZMA1EXT/no-EOPM packer for the Airoha BL33 contract. |
 | `scripts/make-install-mtd0.py` | Merge the board 512 KiB boot-area template with the newly repacked FIP into a flashable `mtd0` image. |
@@ -111,7 +111,7 @@ Building:
 
 ```bash
 OPENWRT_SDK=/path/to/openwrt-sdk ./build.sh xg040-md
-URSUS_FIP=reference/md/ursusboot-test61-update.fip \
+URSUS_FIP_DONOR=reference/md/ursusboot-test61-update.fip \
   OPENWRT_SDK=/path/to/openwrt-sdk ./build.sh xg040-md
 ```
 
@@ -122,6 +122,44 @@ OPENWRT_SDK=/path/to/openwrt-sdk ./build.sh xg040-md ram-recovery
 `OPENWRT_SDK` (or the third positional argument) may point at an extracted OpenWrt SDK or standalone OpenWrt AArch64 toolchain; the cross compiler is located inside it automatically. Outputs land in `dist/<board>/`.
 
 Boards, configs, templates and roles all come from `config/board-profiles.json` — `build.sh` hardcodes nothing and refuses unknown boards, unknown roles and roles a board does not allow. A board that is described but not yet buildable (no `config` declared) fails with an explicit message rather than a confusing build error.
+
+### Donor FIP semantics
+
+The FIP input to `build.sh` is **not a ready-made FIP that will be copied unchanged into the output**. It is a **donor/reference container** that supplies the proven Airoha platform lineage: BL31 and the other FIP entries, entry ordering/layout, certificate/checksum structure and the board-specific container budget. The build always compresses the freshly built `u-boot.bin` to Airoha LZMA1EXT/no-EOPM form and replaces only the donor's NT_FW/BL33 payload.
+
+In other words:
+
+```text
+donor/reference FIP
+        +
+fresh current-source u-boot.bin
+        |
+        v
+LZMA1EXT/no-EOPM BL33
+        |
+        v
+repack donor container, replacing NT_FW/BL33 only
+        |
+        v
+dist/<board>/ursusboot-update.fip
+```
+
+The canonical override is:
+
+```bash
+URSUS_FIP_DONOR=/path/to/proven-donor.fip \
+  OPENWRT_SDK=/path/to/openwrt-sdk ./build.sh xg040-md persistent
+```
+
+Variable semantics:
+
+| Variable | Meaning |
+|---|---|
+| `URSUS_FIP_DONOR` | **Canonical name.** Use this to override the board profile's `reference_fip` donor container. |
+| `URSUS_FIP_TEMPLATE` | Compatibility alias for `URSUS_FIP_DONOR`; same donor semantics. |
+| `URSUS_FIP` | Legacy compatibility alias; despite the old name, it is also treated as a **donor**, never flashed/copied as-is. |
+
+If none of these variables is set, the board profile's `reference_fip` is used. The resulting `ursusboot-update.fip` is then checked to ensure that its NT_FW/BL33 entry is byte-for-byte the `u-boot.lzma` produced by the same build before the 512 KiB install image is emitted.
 
 The runtime role is applied **at source level** before the build: `ram-recovery` rewrites `bootcmd` in the default environment inside the tree, so it needs a clean checkout and cannot be applied twice in a row. Restore with:
 
