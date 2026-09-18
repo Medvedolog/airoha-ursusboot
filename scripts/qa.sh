@@ -59,69 +59,13 @@ grep -q 'bool borrowed = false' "$ROOT/src/u-boot/net/lwip/tftp.c"
 grep -q 'URSUS_CONSOLE_DEFER' "$ROOT/src/u-boot/cmd/ursusweb.c"
 grep -q 'URSUS_WEB_STOP_REQUEST source=UART' "$ROOT/src/u-boot/cmd/ursusweb.c"
 # MAC identity must be refreshed before autoboot on both current Nokia profiles.
-grep -q '^CONFIG_USE_PREBOOT=yfor envf in "$ROOT/src/u-boot/defenvs/an7581_nokia_xg-040g-md_env" "$ROOT/src/u-boot/defenvs/an7583_nokia_xg-040g-mf_env"; do
-    grep -q '^preboot=run ethaddr_factory ;' "$envf"
-    grep -q 'URSUS_MAC_SOURCE=RI' "$envf"
-    grep -q 'URSUS_MAC_INVALID_RI fallback=persisted' "$envf"
-    grep -q 'URSUS_MAC_RI_READ_FAIL fallback=random' "$envf"
-    grep -q 'env default -f -a && run ethaddr_factory && saveenv && saveenv' "$envf"
-done
-grep -q '^## Recovery threat model$' "$ROOT/README.md"
-test ! -e "$ROOT/SHA256SUMS" || { echo 'root SHA256SUMS is intentionally unsupported; use dist/<board>/SHA256SUMS' >&2; exit 1; }
-if python3 "$ROOT/scripts/resolve_board_profile.py" --registry "$ROOT/config/board-profiles.json" --profile xg040-md --role bogus --field runtime_role >/tmp/qa.out 2>&1; then exit 1; fi
-grep -q "does not allow runtime role 'bogus'" /tmp/qa.out
-if python3 "$ROOT/scripts/resolve_board_profile.py" --registry "$ROOT/config/board-profiles.json" --profile xg140-md --field config >/tmp/qa.out 2>&1; then exit 1; fi
-grep -q "declares no 'config' yet" /tmp/qa.out
-echo URSUSBOOT_STANDALONE_QA=PASS
- "$ROOT/config/u-boot.TEST61.full.config"
-grep -q '^CONFIG_USE_PREBOOT=yfor envf in "$ROOT/src/u-boot/defenvs/an7581_nokia_xg-040g-md_env" "$ROOT/src/u-boot/defenvs/an7583_nokia_xg-040g-mf_env"; do
-    grep -q '^preboot=run ethaddr_factory ;' "$envf"
-    grep -q 'URSUS_MAC_SOURCE=RI' "$envf"
-    grep -q 'URSUS_MAC_INVALID_RI fallback=persisted' "$envf"
-    grep -q 'URSUS_MAC_RI_READ_FAIL fallback=random' "$envf"
-    grep -q 'env default -f -a && run ethaddr_factory && saveenv && saveenv' "$envf"
-done
-grep -q '^## Recovery threat model$' "$ROOT/README.md"
-test ! -e "$ROOT/SHA256SUMS" || { echo 'root SHA256SUMS is intentionally unsupported; use dist/<board>/SHA256SUMS' >&2; exit 1; }
-if python3 "$ROOT/scripts/resolve_board_profile.py" --registry "$ROOT/config/board-profiles.json" --profile xg040-md --role bogus --field runtime_role >/tmp/qa.out 2>&1; then exit 1; fi
-grep -q "does not allow runtime role 'bogus'" /tmp/qa.out
-if python3 "$ROOT/scripts/resolve_board_profile.py" --registry "$ROOT/config/board-profiles.json" --profile xg140-md --field config >/tmp/qa.out 2>&1; then exit 1; fi
-grep -q "declares no 'config' yet" /tmp/qa.out
-echo URSUSBOOT_STANDALONE_QA=PASS
- "$ROOT/config/an7583_nokia_xg-040g-mf_MF2_RAM_defconfig"
+grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/u-boot.TEST61.full.config"
+grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/an7583_nokia_xg-040g-mf_MF2_RAM_defconfig"
 # Without ENV_OVERWRITE the ethaddr env flag is "mo" (write-once), so every
 # ethaddr_factory rewrite after the first saveenv is refused and the recovery
 # MAC can never be corrected. See include/env_flags.h ETHADDR_FLAGS.
-grep -q '^CONFIG_ENV_OVERWRITE=yfor envf in "$ROOT/src/u-boot/defenvs/an7581_nokia_xg-040g-md_env" "$ROOT/src/u-boot/defenvs/an7583_nokia_xg-040g-mf_env"; do
-    grep -q '^preboot=run ethaddr_factory ;' "$envf"
-    grep -q 'URSUS_MAC_SOURCE=RI' "$envf"
-    grep -q 'URSUS_MAC_INVALID_RI fallback=persisted' "$envf"
-    grep -q 'URSUS_MAC_RI_READ_FAIL fallback=random' "$envf"
-    grep -q 'env default -f -a && run ethaddr_factory && saveenv && saveenv' "$envf"
-done
-grep -q '^## Recovery threat model$' "$ROOT/README.md"
-test ! -e "$ROOT/SHA256SUMS" || { echo 'root SHA256SUMS is intentionally unsupported; use dist/<board>/SHA256SUMS' >&2; exit 1; }
-if python3 "$ROOT/scripts/resolve_board_profile.py" --registry "$ROOT/config/board-profiles.json" --profile xg040-md --role bogus --field runtime_role >/tmp/qa.out 2>&1; then exit 1; fi
-grep -q "does not allow runtime role 'bogus'" /tmp/qa.out
-if python3 "$ROOT/scripts/resolve_board_profile.py" --registry "$ROOT/config/board-profiles.json" --profile xg140-md --field config >/tmp/qa.out 2>&1; then exit 1; fi
-grep -q "declares no 'config' yet" /tmp/qa.out
-echo URSUSBOOT_STANDALONE_QA=PASS
- "$ROOT/config/u-boot.TEST61.full.config"
-grep -q '^CONFIG_ENV_OVERWRITE=yfor envf in "$ROOT/src/u-boot/defenvs/an7581_nokia_xg-040g-md_env" "$ROOT/src/u-boot/defenvs/an7583_nokia_xg-040g-mf_env"; do
-    grep -q '^preboot=run ethaddr_factory ;' "$envf"
-    grep -q 'URSUS_MAC_SOURCE=RI' "$envf"
-    grep -q 'URSUS_MAC_INVALID_RI fallback=persisted' "$envf"
-    grep -q 'URSUS_MAC_RI_READ_FAIL fallback=random' "$envf"
-    grep -q 'env default -f -a && run ethaddr_factory && saveenv && saveenv' "$envf"
-done
-grep -q '^## Recovery threat model$' "$ROOT/README.md"
-test ! -e "$ROOT/SHA256SUMS" || { echo 'root SHA256SUMS is intentionally unsupported; use dist/<board>/SHA256SUMS' >&2; exit 1; }
-if python3 "$ROOT/scripts/resolve_board_profile.py" --registry "$ROOT/config/board-profiles.json" --profile xg040-md --role bogus --field runtime_role >/tmp/qa.out 2>&1; then exit 1; fi
-grep -q "does not allow runtime role 'bogus'" /tmp/qa.out
-if python3 "$ROOT/scripts/resolve_board_profile.py" --registry "$ROOT/config/board-profiles.json" --profile xg140-md --field config >/tmp/qa.out 2>&1; then exit 1; fi
-grep -q "declares no 'config' yet" /tmp/qa.out
-echo URSUSBOOT_STANDALONE_QA=PASS
- "$ROOT/config/an7583_nokia_xg-040g-mf_MF2_RAM_defconfig"
+grep -q '^CONFIG_ENV_OVERWRITE=y$' "$ROOT/config/u-boot.TEST61.full.config"
+grep -q '^CONFIG_ENV_OVERWRITE=y$' "$ROOT/config/an7583_nokia_xg-040g-mf_MF2_RAM_defconfig"
 for envf in "$ROOT/src/u-boot/defenvs/an7581_nokia_xg-040g-md_env" "$ROOT/src/u-boot/defenvs/an7583_nokia_xg-040g-mf_env"; do
     grep -q '^preboot=run ethaddr_factory ;' "$envf"
     grep -q 'URSUS_MAC_SOURCE=RI' "$envf"
