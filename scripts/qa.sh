@@ -50,6 +50,8 @@ PY
 if grep -R -nE 'vendor-baseline|git clone .*airoha-router-ursusflasher|raw\.githubusercontent\.com/Medvedolog/airoha-router-ursusflasher|codeload\.github\.com/Medvedolog/airoha-router-ursusflasher' "$ROOT" --exclude='PROVENANCE.md' --exclude='qa.sh'; then echo 'unexpected build/runtime dependency on old repository' >&2; exit 1; fi
 grep -q 'Network busy: active lwIP interface' "$ROOT/src/u-boot/net/lwip/net-lwip.c"
 grep -q 'bool borrowed = false' "$ROOT/src/u-boot/cmd/lwip/ping.c"
+grep -A4 -q 'ret = ping_raw_init(&ctx);' "$ROOT/src/u-boot/cmd/lwip/ping.c"
+grep -A4 'ret = ping_raw_init(&ctx);' "$ROOT/src/u-boot/cmd/lwip/ping.c" | grep -q 'if (!borrowed)'
 grep -q 'bool borrowed = false' "$ROOT/src/u-boot/net/lwip/tftp.c"
 grep -q 'URSUS_CONSOLE_DEFER' "$ROOT/src/u-boot/cmd/ursusweb.c"
 grep -q 'URSUS_WEB_STOP_REQUEST source=UART' "$ROOT/src/u-boot/cmd/ursusweb.c"
