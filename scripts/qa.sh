@@ -28,6 +28,9 @@ for helper in resolve_board_profile.py apply_runtime_role.py make-install-mtd0.p
 test -f "$ROOT/src/u-boot/repack_persistent_fip.py"
 test -f "$ROOT/src/u-boot/lzma1ext_noeopm.c"
 grep -q 'FIP_CURRENT_BL33=PASS' "$ROOT/build.sh"
+grep -q 'URSUS_FIP_DONOR' "$ROOT/README.md"
+grep -q 'Donor FIP semantics' "$ROOT/README.md"
+grep -q 'treated as a \*\*donor\*\*' "$ROOT/README.md"
 
 # Repacking the reference FIP with its own NT_FW payload must reproduce the
 # container byte-for-byte. This guards the donor/repack contract independently
