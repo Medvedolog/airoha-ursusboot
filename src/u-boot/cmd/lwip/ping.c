@@ -138,7 +138,8 @@ static int ping_loop(struct udevice *udev, const ip_addr_t *addr)
 
 	ret = ping_raw_init(&ctx);
 	if (ret < 0) {
-		net_lwip_remove_netif(netif);
+		if (!borrowed)
+			net_lwip_remove_netif(netif);
 		return ret;
 	}
 
