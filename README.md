@@ -136,6 +136,100 @@ git checkout -- src/u-boot/defenvs src/u-boot/include
 | `persistent` | `ursusdispatch` | Normal persistent supervisor boot from flash. |
 | `ram-recovery` | `ursusweb;true` | RAM-only WebFailsafe recovery: go straight to the web UI and never touch the boot path. |
 
+## Installing or updating UrsusBoot
+
+The **recommended way to flash a freshly built `ursusboot-update.fip` is UrsusFlasher**. It is the operator-side installer/orchestrator for Windows and Linux and already knows the safe transports and verification sequence.
+
+For supported hardware it can use whichever path is available:
+
+- **UrsusBoot WebFailsafe** — upload the freshly built FIP through the bootloader web interface and let the normal update path validate, write and read back the bootloader;
+- **stock Nokia Linux/root access** — transfer the image through the stock system, verify it, select the appropriate MTD writer and verify a full readback before reboot;
+- **UART / Airoha Brick Mode** — use the serial recovery path when the web interface or stock Linux is unavailable, including BootROM/XMODEM recovery on a bricked unit.
+
+For a custom locally built port, UrsusFlasher can also be used as the transport/orchestrator even before that board becomes a first-class built-in profile. In other words: **build the FIP here; let UrsusFlasher do the tedious and dangerous part whenever possible.**
+
+The manual procedures below are the fallback/expert paths.
+
+### Route A — stock Linux over root shell
+
+All preconditions must hold before a write:
+
+```sh
+cat /proc/mtd
+# mtd0 must be the bootloader partition: size 00080000, erase 00020000
+
+cat /sys/class/mtd/mtd0/bad_blocks
+# must report 0
+
+command -v dd sha256sum
+```
+
+Back up the whole 512 KiB boot area and move that backup off the router:
+
+```sh
+dd if=/dev/mtd0 bs=131072 count=4 of=/tmp/mtd0-backup.bin
+sha256sum /tmp/mtd0-backup.bin
+```
+
+A backup that exists only in `/tmp` is not a backup. Copy it to the PC and verify the same SHA256 there.
+
+After transferring `ursusboot-install-mtd0.bin` back to the router, verify its SHA256 before writing. Use **one** writer only; do not try another writer after the first one has started because erase may already have happened:
+
+```sh
+mtd write /tmp/ursusboot-mtd0.bin bootloader
+
+# or
+flash_erase /dev/mtd0 0 0 && nandwrite -p /dev/mtd0 /tmp/ursusboot-mtd0.bin
+
+# or
+flash_eraseall /dev/mtd0 && nandwrite -p /dev/mtd0 /tmp/ursusboot-mtd0.bin
+
+# or
+mtd_debug erase /dev/mtd0 0 0x80000 && \
+mtd_debug write /dev/mtd0 0 0x80000 /tmp/ursusboot-mtd0.bin
+
+sync
+```
+
+Before rebooting, read the entire boot block back and compare it with the image SHA256:
+
+```sh
+dd if=/dev/mtd0 bs=131072 count=4 2>/dev/null | sha256sum
+```
+
+If readback differs, **do not power-cycle**. Keep the running system alive and fix the write while recovery is still possible.
+
+On OpenWrt, the boot MTD may be marked read-only. UrsusFlasher has dedicated support for that case, including its pinned `mtd-rw` path and the narrow `ursus-mtd-raw` writer.
+
+### Route B — UART / XMODEM
+
+Use a **3.3 V** UART adapter on TX/RX/GND, `115200 8N1`, no flow control.
+
+If a U-Boot prompt is reachable:
+
+```text
+mtd list
+loadx 0x8e000000
+# send ursusboot-install-mtd0.bin with XMODEM
+
+mtd erase bl2 0x0 0x80000
+mtd write bl2 0x8e000000 0x0 0x80000
+```
+
+The partition name is layout-dependent. On factory layouts it is typically `bl2`; on canonical UrsusBoot/OpenWrt UBI layouts it may be `ursus-ubi-bl2`. **`mtd list` is authoritative; do not guess.**
+
+For a unit with no prompt, Airoha BootROM recovery is two-stage:
+
+1. Power off.
+2. Hold Reset before applying power.
+3. Send the proven preloader/BL2 over XMODEM.
+4. Send the RAM-installer FIP over XMODEM.
+5. Continue from the RAM-resident U-Boot without having touched NAND yet.
+
+The currently hardware-proven MD BootROM stage-2 payload is the pinned alpha3 RAM-installer FIP used by UrsusFlasher. The `ram-recovery` role in this repository changes BL33 runtime policy to `bootcmd=ursusweb;true`, but **that alone is not yet a hardware proof that an arbitrary freshly repacked FIP is BootROM-stage-2 compatible**. Until that container/entry contract is validated on hardware, use UrsusFlasher's proven RAM-installer for brick recovery.
+
+Once UrsusBoot is running, a freshly built persistent FIP can then be installed through WebFailsafe/UrsusFlasher with normal validation and readback.
+
 ## Built-in commands
 
 UrsusBoot adds seven U-Boot commands. All of them are ordinary console commands and can be composed from the environment or typed by hand over UART.
@@ -266,6 +360,7 @@ Upload headers: `X-Ursus-Total`, `X-Ursus-Generation` and `X-Ursus-Filename` on 
 - detects known Airoha/Nokia models and current boot/storage state;
 - performs backups and validates them;
 - installs or updates UrsusBoot from Nokia stock Linux, OpenWrt or UrsusBoot Recovery;
+- accepts a **freshly built local UrsusBoot FIP** and chooses the convenient supported path — WebFailsafe, stock-root flashing or UART/Brick Mode — instead of making the operator reproduce the low-level write sequence by hand;
 - performs readback verification and recovery workflows;
 - handles Airoha BootROM/XMODEM/UART recovery for bricked devices;
 - can be used as a transport/orchestrator for a **custom locally built UrsusBoot**, including Airoha hardware not yet represented by a first-class UrsusFlasher board profile, through the explicit Airoha UART/Brick-mode recovery path.
