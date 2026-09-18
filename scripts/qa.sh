@@ -28,6 +28,25 @@ for helper in resolve_board_profile.py apply_runtime_role.py make-install-mtd0.p
 test -f "$ROOT/src/u-boot/repack_persistent_fip.py"
 test -f "$ROOT/src/u-boot/lzma1ext_noeopm.c"
 grep -q 'FIP_CURRENT_BL33=PASS' "$ROOT/build.sh"
+
+# Repacking the reference FIP with its own NT_FW payload must reproduce the
+# container byte-for-byte. This guards the donor/repack contract independently
+# of the cross-toolchain.
+ROOT="$ROOT" python3 - <<'PY'
+import importlib.util, os
+from pathlib import Path
+r = Path(os.environ['ROOT'])
+spec = importlib.util.spec_from_file_location('repack', r / 'src/u-boot/repack_persistent_fip.py')
+repack = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(repack)
+ref = (r / 'reference/md/ursusboot-test61-update.fip').read_bytes()
+_s, _f, entries, _t, _e = repack.parse(ref)
+nt = next(e['payload'] for e in entries if e['uuid'] == repack.NT_UUID)
+out, _report = repack.rebuild(ref, nt, force_old_layout=True)
+if out != ref:
+    raise SystemExit('FIP repack selftest failed: rebuilt container differs from reference')
+print('FIP repack selftest: PASS')
+PY
 if grep -R -nE 'vendor-baseline|git clone .*airoha-router-ursusflasher|raw\.githubusercontent\.com/Medvedolog/airoha-router-ursusflasher|codeload\.github\.com/Medvedolog/airoha-router-ursusflasher' "$ROOT" --exclude='PROVENANCE.md' --exclude='qa.sh'; then echo 'unexpected build/runtime dependency on old repository' >&2; exit 1; fi
 grep -q 'Network busy: active lwIP interface' "$ROOT/src/u-boot/net/lwip/net-lwip.c"
 grep -q 'bool borrowed = false' "$ROOT/src/u-boot/cmd/lwip/ping.c"
