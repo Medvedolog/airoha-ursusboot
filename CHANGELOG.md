@@ -103,11 +103,224 @@ Evidence:
 - `xg040-mf` — AN7583, board template and build config present; persistent donor-FIP lineage is not yet declared in the profile.
 - `xg140-md` — described as an intentional incomplete/scaffolded profile; `config`, `boot_area_template` and `reference_fip` remain null so the build fails explicitly rather than guessing.
 
-## Historical baseline — UrsusBoot 0.1.0-alpha5-UBIUX1-TEST61
+## Historical development lineage — original UrsusFlasher repository
 
-The standalone repository uses the XG-040G-MD TEST61 lineage as its initial hardware-proven baseline.
+Before the standalone repository existed, UrsusBoot was developed inside
+`Medvedolog/airoha-router-ursusflasher`. The most useful historical sources are the
+published changelogs, the TEST57-TEST61 hardware-test notes, per-build `BUILD_INFO`
+files, and later handoff documents on the development branches.
 
-Known baseline artifact:
+This section records that lineage because it explains why several present-day
+standalone invariants exist. It does **not** mean every historical UrsusFlasher host
+feature or experimental branch is part of the standalone UrsusBoot product.
+
+### 0.1.0-alpha3 — emergency/BootROM baseline
+
+Alpha3 became the pinned emergency boundary for the MD / AN7581 path.
+
+Known artifacts from the original repository:
+
+- persistent FIP: `ursusboot-md-0.1.0-alpha3-update.fip`
+  - SHA256 `597071e178470bfda23aab9738ad7ddb0b25e9b21ef336fd3eceb39c39f983ce`
+- RAM installer FIP: `ursusboot-md-0.1.0-alpha3-ram-installer.fip`
+  - SHA256 `dc08ed0be1b1d68f6bc247ae45293e6ab0ca9df7695541b664e4060a145228c8`
+- BL2: `ursusboot-md-0.1.0-alpha3-bl2.bin`
+  - SHA256 `6f9c928bad500de0339bbfdfa354c17a7ac044f96c913f3a01301971d6cd659d`
+
+The old repository explicitly describes this alpha3 RAM/BootROM chain as the exact
+hardware-working emergency lineage. Later production FIPs were deliberately kept
+separate from it: normal self-update must not silently replace the proven emergency
+preloader/RAM-installer contract.
+
+Evidence: **HW PASS** for the historical emergency lineage as documented by the
+original UrsusFlasher payload/EMERGENCY contract. This does not automatically confer
+BootROM-stage-2 HW proof on a newly repacked standalone `ram-recovery` FIP.
+
+### 0.1.0-alpha4 — recovery hardening series
+
+The alpha4 line was not one monolithic change; it accumulated several focused
+hardware/recovery iterations.
+
+#### HWFIX1
+
+- disabled the production boot menu and retained `bootcmd=ursusdispatch`;
+- retained the sticky 750 ms Reset-at-boot recovery trigger;
+- enabled console recording used by the browser console path;
+- added explicit re-entry/ownership behavior for WebFailsafe and lwIP;
+- included the staged UBI-update/status work and LED diagnostics.
+
+Historical artifact:
+
+- FIP SHA256 `f07245f705227e981260984a63572f9ddee7bc0a8f482c353e2e278ff2bfb04f`.
+
+The subsequent HWFIX2 build contract names HWFIX1 as its hardware-proven persistent
+FIP base.
+
+#### HWFIX2
+
+- completed the recovery LED/error indication before NAND/UBI diagnostics;
+- avoided a duplicate full raw-MTD bad-block walk on an already-known
+  `OPENWRT_UBI` layout;
+- expanded `/api/status` with boot/recovery reason, FIP/FIT state, UBI counters,
+  board/SoC/DRAM/FDT and update result;
+- kept one normal operator `y/N` for the destructive transaction.
+
+Historical artifact:
+
+- FIP SHA256 `f164ff4ac0f272550151c4f0d89cd154bd7b0d6eb9165c44c469caec9fc0138f`;
+- NT_FW margin before the first certificate: 2631 bytes.
+
+The HWFIX3 provenance file names HWFIX2 as the hardware-proven persistent base.
+
+#### HWFIX3
+
+- suppressed the generic 3-second U-Boot autoboot countdown without saving env;
+- cleaned Web UI recovery/previous-image/PEB wording;
+- unified firmware and initramfs/FIT staging at `0x90000000`, up to 64 MiB;
+- removed the obsolete 16 MiB expert staging window;
+- made the two staging consumers invalidate each other's metadata explicitly.
+
+Historical artifact:
+
+- FIP SHA256 `e8809b69712b5c3e57d3230a9bcd86048f1e02a58106229c06a7be45a35b97a7`.
+
+The UIFIX1 build contract describes HWFIX3 as hardware-tested.
+
+#### UIFIX1
+
+A deliberately narrow UI-only descendant of HWFIX3:
+
+- normalized the NAND bad-block label to `BadBlocks`;
+- kept UBI corrupted-PEB reporting separate;
+- changed no boot/reset/NAND/UBI/network/migration/staging policy.
+
+Historical artifact:
+
+- FIP SHA256 `a6d1977eed9eb08bb9960b6621322fdd20babe07fb36fdb178b61dedc09a8ad4`.
+
+### 0.1.0-alpha4-FUDAN1 — Fudan SPI-NAND support
+
+FUDAN1 carried forward the UIFIX1 behavior and added the OpenWrt FMSH/Fudan support
+line for FM25G01B/FM25G02B, including the Quad-I/O dummy-cycle correction.
+
+Historical build contract:
+
+- OpenWrt baseline `3d1645ee26d6a2e20be71d7fa1716721bac78e53`;
+- U-Boot v2026.07;
+- raw BL33 SHA256 `a41a81a011e19d1498d5ff0773dfd6bf9bd4c56beb3e7a46ce4622a643a30703`;
+- FIP SHA256 `ce43b56d86321ccb7657d2e9b7ddf58e811efc73927855bbb75e896c83b18600`;
+- NT_FW margin 3133 bytes.
+
+Its BUILD_INFO explicitly marked Fudan hardware as unverified at that point and
+required a SkyHigh regression. Therefore the historical build is **SOURCE/BUILD
+evidence**, not a blanket Fudan **HW PASS**.
+
+### 0.1.0-alpha5-UBIUX1 — OpenWrt-aware UBI recovery/update
+
+Alpha5-UBIUX1 was the major persistent-recovery expansion on top of FUDAN1:
+
+- allowed `OPENWRT_STOCK_LAYOUT -> OPENWRT_UBI` through the Recovery migration
+  backend already used for Nokia stock;
+- preserved BOSA/RI/FIP through migration and committed full BL2 last;
+- added the Web "Keep OpenWrt settings" path for UBI updates;
+- added "Reset OpenWrt settings" and the U-Boot command `ursussettings reset`;
+- created fresh/reset `rootfs_data` with MAX minus 16 free PEBs and persisted
+  `rootfs_data_max`;
+- selected staged UBI update when headroom allowed it, otherwise a direct
+  Recovery-safe replacement.
+
+Historical artifact:
+
+- raw BL33 SHA256 `06397f68ba876e01ba6a07ebbdbbcfac1e5341b9d82926fd6b4a54ae1bf7e552`;
+- FIP SHA256 `548c446555231ee1b6ec4666000831226e0749c576d702c06dc5f501a6f510db`;
+- NT_FW margin 1313 bytes.
+
+The original BUILD_INFO classified this as source/build/package QA pending hardware
+regression.
+
+### TEST57 — diagnostics, transport recovery and Web transaction behavior
+
+`0.1.0-alpha5-UBIUX1-TEST57` added the first structured safety/diagnostic layer
+around the alpha5 path:
+
+- fixed the `/api/reset-openwrt-settings` route-prefix off-by-one;
+- extended API status with NAND geometry and structured failure/transaction state;
+- added `/api/operation-log`;
+- added host-side failure diagnostic bundles and full status snapshots;
+- added bounded HTTP upload retry/reconcile using generation/received/total;
+- removed the generic automatic TFTP fallback after a Web error;
+- recorded the long pre-U-Boot UBI scan as a separate BL2 performance issue rather
+  than changing layout during a safety regression.
+
+The original changelog records the main stock -> UrsusBoot -> OpenWrt UBI ONE-CLICK
+path as having passed on a SkyHigh S35ML02G300 during the TEST57 cycle. That
+hardware result applies to that tested path, not automatically to every later
+TEST57-derived change.
+
+### TEST58 — diagnostic capture and reboot/wait correctness
+
+TEST58 focused on host/recovery observability and state transitions:
+
+- every write-capable operation captured before/after status, operation log, Web log,
+  console snapshot and operation metadata;
+- ONE-CLICK waited for the new UrsusBoot Recovery instance rather than mistaking the
+  old stock HTTP service for a successful reboot;
+- the wait UI stopped displaying negative time;
+- build date/version identity was made deterministic with a fixed release epoch.
+
+The main ONE-CLICK hardware path was inherited from TEST57; TEST58 itself required
+focused regression of its new behavior.
+
+### TEST59 — settings UX, reboot and UBI headroom correction
+
+TEST59 introduced the corrective set later carried into TEST60/61:
+
+- restored visibility of the keep/reset-settings decision for a new operation after a
+  previous COMPLETE/FAILED transaction;
+- allowed `/api/reboot` after ordinary UBI update, not only migration/self-update;
+- made machine/UART project log strings English printable ASCII;
+- replaced the artificial "restore absolute 16 free LEBs" update gate with projected
+  headroom logic that preserves the headroom actually present before the operation.
+
+At this point the old FIP packing budget was nearly exhausted: the historical TEST59
+NT_FW ended only 30 bytes before the first certificate.
+
+### TEST60 / CONFIGTRIM1 — recover FIP headroom without changing recovery policy
+
+TEST60 removed U-Boot subsystems not used by the recovery product:
+
+- `CONFIG_CMD_UBIFS=n`;
+- PXE/extlinux command/bootmethod support disabled;
+- UBI, TFTP, WGET and `bootcmd=ursusdispatch` retained.
+
+This reduced raw BL33 from 956088 to 860176 bytes and compressed BL33 from 327650 to
+291237 bytes, restoring 36443 bytes of NT_FW margin. Runtime WebFailsafe/update/reset
+logic was intentionally unchanged from TEST59.
+
+Evidence: source/build/package QA; focused CONFIGTRIM1 hardware regression was still
+required.
+
+### TEST61 / SAFETYREG1 — standalone baseline
+
+TEST61 closed a set of safety regressions discovered while testing the combined
+UrsusBoot/UrsusFlasher flow:
+
+- fixed split build identity between native `version`, `.scmversion`, Web/API and
+  host metadata;
+- stopped ONE-CLICK from automatically performing a second FIP update after a direct
+  stock `mtd0` write/readback had already proved the installed bootloader;
+- explicit FIP self-update reuses the expected attached UBI rather than detaching it;
+- increased upload reconnect grace and required a new operator `y/N` before a new
+  full transfer cycle after failure;
+- made pre-operation upload/validation failure explicitly `NOT_STARTED` and
+  recoverable for the next attempt;
+- kept direct-stock install to one meaningful `y/N` after backup/preflight;
+- separated production TEST61 metadata from the pinned alpha3 emergency BootROM
+  lineage;
+- made public-test packaging reproducible through fixed epoch and canonical ordering;
+- retained CONFIGTRIM1.
+
+Known baseline artifact imported into the standalone repository:
 
 - `ursusboot-md-0.1.0-alpha5-UBIUX1-TEST61-update.fip`
 - size: 503808 bytes
@@ -121,7 +334,14 @@ Historical LZMA payload SHA256:
 
 - `bec245ab0b10e3fffcc2f0a482c2c3b97b03577b4a03c436857243cd68ff9d29`
 
-The proven persistent-FIP layout used by the standalone packer is:
+TEST61 sizes recorded by the old changelog:
+
+- raw BL33: 860808 bytes;
+- LZMA BL33: 291160 bytes;
+- FIP: 503808 bytes;
+- NT_FW margin: 36520 bytes.
+
+The persistent-FIP layout carried into the standalone packer is:
 
 ```text
 NT_FW / BL33 offset     0x27800
@@ -131,7 +351,79 @@ FIP logical end        0x7b000
 physical end           0x7b800
 ```
 
-TEST57-TEST60 development archaeology is intentionally not part of the supported standalone public build surface.
+The original TEST61 release status was source/build QA with mandatory hardware safety
+regression for the TEST61-specific safety changes. The standalone project therefore
+treats TEST61 as the **historical persistent baseline**, while continuing to label
+new standalone behavior according to its own QA/BUILD/HW evidence.
+
+### 2026-09-09 onward — AN7583 / XG-040G-MF development
+
+The old `feature/mf-an7583` line introduced the first board-family abstraction and a
+native AN7583 RAM recovery target:
+
+- MD/MF `BoardProfile` applicability/writer policy;
+- RAM-only MF2 with `ENV_IS_NOWHERE`, `bootcmd=ursusweb`, persistent Ursus writers
+  rejected with `-EROFS`;
+- exact AN7583 build/artifact audits and checks against MD identity leakage;
+- family-aware stock/recovery routing;
+- later MF persistent-runtime Kconfig/environment work and device-derived candidate
+  tooling.
+
+The 2026-09-09 checkpoint explicitly labelled MF2/HWTEST4 as **STATIC QA PASS /
+HW-TEST CANDIDATE**, not hardware proof. GitHub Actions run `34360701468` produced
+artifact `ursusboot-mf2-ram1-an7583-hwtest4`.
+
+This distinction matters to the standalone profile today: XG-040G-MF has a real
+AN7583 source/config lineage, but its persistent donor-FIP contract is still not
+declared in the standalone registry.
+
+### 2026-09-13/14 — XG-140G-MD experiments and modular Airoha architecture
+
+The original development repository then explored XG-140G-MD and extracted the
+multi-board architecture that later informed the standalone tree.
+
+Selected modularization commits on `feature/ursusboot-modular-airoha`:
+
+- `5a7d36132fbbb02e8965b0366a7fc93f6b95fbb0` — board profile registry;
+- `7254076cb7645dd51ad314afdfb316a1b6fb0d3e` — generic profile resolver;
+- `39f81a506fc8f3b475bfe8f9fe0de39460bca88f` — MD board policy;
+- `50312bdc3978ff2f81a2dbb99b5369239b5a4868` — MF board policy;
+- `3e0e751e299b9023346751aec86fbc02a35734cb` — XG140 board policy;
+- `e338a4093eef1d78adfc16e5f740ad84efa29556` — dispatcher/StockBridge policy split;
+- `1b63eb06728c90e55700390d69fc2a996a8d1463` through
+  `0a671eb35453593665d13ebcdd3a39f7da1c6b10` — runtime-role declaration,
+  resolution and source-level verification.
+
+The XG140 line also proved an important negative design rule: sharing AN7581 does not
+make MD boot geometry/FIP policy portable. XG140 therefore requires its own native
+geometry/container/recovery proof.
+
+The present standalone repository intentionally keeps XG140 as an incomplete profile
+(`config`, template and donor FIP unset) rather than promoting experimental
+UrsusFlasher-era assumptions into a flashable build.
+
+### TRANSITION / Vanilla work is a separate product track
+
+The old modular branch also contains a large TRANSITION/Vanilla history and handoff
+documents. That work reused pieces of UrsusBoot (WebFailsafe, stock-slot tooling,
+Airoha networking and recovery mechanics) while aiming at a final **non-Ursus**
+OpenWrt boot chain.
+
+It is useful engineering archaeology but is not part of the persistent standalone
+UrsusBoot version line. In particular, TRANSITION2 experiments, pregnant initramfs,
+Vanilla BL2/FIP migration and UnameOne production payload work must not be presented
+as released standalone UrsusBoot features.
+
+Historical sources consulted for this reconstruction include:
+
+- `docs/CHANGELOG_RU.md` / `CHANGELOG_EN.md`;
+- `docs/CHANGELOG_DEV_RU.md`;
+- `docs/TEST57_TEST_RU.md` through `TEST61_TEST_RU.md`;
+- alpha4/alpha5 `BUILD_INFO` files under `payloads/md/ursusboot/`;
+- `docs/XG140_HANDOFF.md`;
+- `docs/MD_VANILLA_HANDOFF.md`;
+- modular-Airoha design/specification documents on
+  `feature/ursusboot-modular-airoha`.
 
 ## Hardware validation policy
 
