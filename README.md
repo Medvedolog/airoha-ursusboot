@@ -93,6 +93,17 @@ drivers/gpio/ursus_an7581_safe_gpio.c
 defenvs/                  per-board default environments
 ```
 
+## Documentation
+
+The short README is the architecture/overview entry point. Operational detail lives in `docs/`:
+
+- [BUILDING.md](docs/BUILDING.md) — toolchain requirements, profiles, donor-FIP packaging and outputs.
+- [INSTALLING.md](docs/INSTALLING.md) — UrsusFlasher, stock-root, UART and BootROM recovery/install procedures.
+- [TESTING.md](docs/TESTING.md) — QA/build/HW acceptance criteria, including MAC and shared-netif checks.
+- [PORTING.md](docs/PORTING.md) — current porting contract, profile schema and the boundary between proven full configs and scaffolding.
+- [PROVENANCE.md](docs/PROVENANCE.md) — standalone origin and binary/container lineage.
+- [CREDITS.md](docs/CREDITS.md) — upstream/community credits.
+
 ## Host-side scripts
 
 | Script | Purpose |
