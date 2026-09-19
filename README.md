@@ -103,6 +103,7 @@ The short README is the architecture/overview entry point. Operational detail li
 - [PORTING.md](docs/PORTING.md) — current porting contract, profile schema and the boundary between proven full configs and scaffolding.
 - [PROVENANCE.md](docs/PROVENANCE.md) — standalone origin and binary/container lineage.
 - [CREDITS.md](docs/CREDITS.md) — upstream/community credits.
+- [CHANGELOG.md](CHANGELOG.md) — source/build/HW-proven milestones and evidence levels.
 
 ## Host-side scripts
 
