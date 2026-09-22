@@ -1,5 +1,7 @@
 # UrsusBoot
 
+[Русская версия / Russian version](README.ru.md)
+
 **Compact OpenWrt-aware recovery and installation U-Boot for Airoha router platforms.**
 
 UrsusBoot grew out of the OpenWrt U-Boot bootloader ecosystem and targets Airoha devices where a small persistent recovery environment is especially valuable. It combines WebFailsafe, OpenWrt image awareness, UBI migration and recovery primitives while staying small enough for constrained boot areas.
@@ -185,11 +187,7 @@ If none of these variables is set, the board profile's `reference_fip` is used. 
 
 Each build also writes `dist/<board>/SHA256SUMS` for the artifacts produced by that build. There is intentionally no repository-wide root `SHA256SUMS`: Git already identifies source blobs, while a hand-maintained whole-tree checksum manifest becomes stale as soon as the tree changes.
 
-The runtime role is applied **at source level** before the build: `ram-recovery` rewrites `bootcmd` in the default environment inside the tree, so it needs a clean checkout and cannot be applied twice in a row. Restore with:
-
-```bash
-git checkout -- src/u-boot/defenvs src/u-boot/include
-```
+The runtime role is applied **at source level** before the build (`ram-recovery` rewrites `bootcmd` in the default environment), but only in the build's own work copy `work/<board>-<role>/u-boot`: `build.sh` never modifies `src/u-boot`, so roles and boards can be built one after another from the same checkout. The full pipeline (source transforms, board policy, identity, UBI preloader pin, fragments) is described in [docs/BUILDING.md](docs/BUILDING.md).
 
 ### Runtime roles
 
