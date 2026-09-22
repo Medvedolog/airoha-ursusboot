@@ -11,6 +11,38 @@ Evidence labels used here:
 
 **QA PASS and BUILD PASS are not HW PASS.**
 
+## 0.1.0-alpha5-UBIUX1-TEST63 (branch `test63`)
+
+TEST63 makes this repository the single firmware source-of-truth for the Airoha UrsusBoot line and the modular build contract real. `airoha-router-ursusflasher` consumes TEST63 artifacts from an exact commit of this repository.
+
+### Modular build pipeline
+
+- `build.sh` builds in `work/<board>-<role>/u-boot`; `src/u-boot` is never mutated.
+- Pipeline per profile: source transforms -> runtime role -> env overlay -> **board policy** (`boards/*.h`, previously scaffolding) -> identity from `VERSION` -> optional UBI preloader pin -> full config + **Kconfig fragments merged and checked** -> compile -> per-profile packaging.
+- Per-profile `config_require` / `config_forbid` and `binary_require` / `binary_forbid` contracts, including Fudan FM25G01B/FM25G02B SPI-NAND support, board identity and the UBI preloader digests actually compiled in.
+- `BUILD-INFO.txt` per build (commit, epoch, donor digest, preloader pin).
+
+### XG-040G-MF becomes a real persistent target
+
+- `xg040-mf` now builds the persistent MF runtime from the same `src/u-boot`: the HW-cycled UrsusFlasher MF derivation (`scripts/mf/`) is applied as a source transform, the board policy supplies HDR3/SerDes/identity.
+- Outputs `u-boot.runtime.lzma`, `ursusboot-runtime-ram.fip` (UART/BootROM RAM recovery) and `ursusboot-uart-preloader.bin`.
+- MF donor FIP, UART preloader and the MedveFlasher FIP parser/encoder are vendored with provenance (`reference/mf/`, `scripts/mf/medve/`); MedveFlasher is no longer a build dependency.
+- The MF runtime environment gains the RI-derived MAC logic already used on MD (`preboot=run ethaddr_factory`, `reset_factory`).
+- Only the `persistent` role is offered for MF in this pipeline.
+
+### Fast-scan BL2 and preloader pinning
+
+- UrsusBoot accepts a STOCK->UBI preloader only if its SHA256 and the SHA256 of the 128 KiB BL2 candidate (`0x800 x 0xff` + preloader + `0xff` padding) equal digests compiled into `cmd/ursusubi.c`. A new BL2 is therefore rejected (`URSUS_UBI_PRELOADER_REJECT reason=sha256`) unless UrsusBoot is built for it.
+- `scripts/pin_ubi_preloader.py` + `URSUS_UBI_PRELOADER=<preloader.fip> ./build.sh ...` compile in the digests of exactly that preloader; the build fails if an old digest survives.
+- `scripts/atf/`: the ATF UBI scan fast-path patch, a hook that applies it inside OpenWrt's `Build/Prepare` (patching `build_dir` after `prepare` was silently lost when `compile` re-extracted the sources), and a BL2 -> preloader FIP wrapper byte-identical to `fiptool create --tb-fw`.
+- `scripts/ci/build-release.sh` + `.github/workflows/build.yml`: fast BL2 (OpenWrt at `config/fast-bl2.json`) -> preloader FIP -> pinned UrsusBoot -> packaging -> `PROVENANCE.json`, for MD and MF.
+
+### Evidence
+
+- Local cross-builds of `xg040-md` and `xg040-mf` (OpenWrt SDK r35906), with and without `URSUS_UBI_PRELOADER` -> **BUILD PASS** (local, not CI).
+- `scripts/qa.sh` including the new `scripts/qa-pipeline.sh` -> **QA PASS** (local).
+- CI BUILD PASS and **HW PASS: pending**. The MF fast-BL2 STOCK->UBI path and the MF RI-derived MAC path have never run on hardware.
+
 ## Unreleased
 
 ### Documentation and project structure

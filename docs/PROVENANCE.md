@@ -57,3 +57,11 @@ Git identifies the source/tree state, but target output also depends on the exac
 - toolchain SHA256;
 - produced artifact SHA256 values;
 - whether evidence is QA, build or hardware validation.
+
+## MF reference inputs (TEST63)
+
+`reference/mf/` holds the MF donor FIP (`medve-rc35-mf-recovery-safe-bl31-uboot.fip`, sha256 `8bfe8870...`) and UART preloader (`medve-rc35-mf-uart-preloader.bin`, sha256 `c2ac1c18...`) from `Medvedolog/nokia-router-medveflasher` at `342cac4cb99a924f3d83eb8e4b5259490377704e` (MIT). `scripts/mf/medve/` vendors that commit's FIP parser and MF LZMA1EXT encoder (`lc=3 lp=0 pb=2`, unlike the MD encoder in `src/u-boot`). See `reference/mf/PROVENANCE.txt`. These are the inputs of the UrsusFlasher MF TEST62 hardware-cycle build.
+
+## Fast-scan BL2 (TEST63)
+
+The BL2 is built from official OpenWrt at `config/fast-bl2.json` `openwrt_ref`, whose ATF package uses `Ansuel/atf-airoha`. `scripts/atf/atf-airoha-083c14f-ubi-scan-fastpath.patch` ports the UBI scan fast path from `Yuzhii0718/atf-airoha@083c14f`. Each release build records the ATF source version, patch SHA256, preloader and BL2-candidate digests and the SHA256 of every output in `dist/<board>/PROVENANCE.json`.

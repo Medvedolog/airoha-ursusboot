@@ -79,4 +79,5 @@ if python3 "$ROOT/scripts/resolve_board_profile.py" --registry "$ROOT/config/boa
 grep -q "does not allow runtime role 'bogus'" /tmp/qa.out
 if python3 "$ROOT/scripts/resolve_board_profile.py" --registry "$ROOT/config/board-profiles.json" --profile xg140-md --field config >/tmp/qa.out 2>&1; then exit 1; fi
 grep -q "declares no 'config' yet" /tmp/qa.out
+bash "$ROOT/scripts/qa-pipeline.sh"
 echo URSUSBOOT_STANDALONE_QA=PASS

@@ -1,0 +1,74 @@
+name: Build
+
+# Release build of every supported board from this exact commit:
+# fast-scan BL2 (official OpenWrt, config/fast-bl2.json) -> preloader FIP ->
+# UrsusBoot pinned to it -> packaging + PROVENANCE.json.
+# QA PASS != BUILD PASS != HW PASS.
+
+on:
+  push:
+    branches: [main, 'test*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.board }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [xg040-md, xg040-mf]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ursusboot
+
+      - name: Resolve pinned OpenWrt
+        id: owrt
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          c = json.load(open('ursusboot/config/fast-bl2.json'))
+          print(f"repo={c['openwrt_repo']}")
+          print(f"ref={c['openwrt_ref']}")
+          PY
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.owrt.outputs.repo }}
+          ref: ${{ steps.owrt.outputs.ref }}
+          path: openwrt
+          fetch-depth: 1
+
+      - name: Host dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib gettext git \
+            libncurses-dev libssl-dev liblzma-dev python3 python3-setuptools rsync swig unzip zlib1g-dev \
+            file wget jq time xz-utils zstd device-tree-compiler perl xxd
+
+      - name: QA
+        run: bash ursusboot/scripts/qa.sh
+
+      - name: Release build
+        env:
+          OPENWRT_DIR: ${{ github.workspace }}/openwrt
+          JOBS: '4'
+        run: bash ursusboot/scripts/ci/build-release.sh "${{ matrix.board }}"
+
+      - name: Summary
+        run: |
+          cat "ursusboot/dist/${{ matrix.board }}/BUILD-INFO.txt"
+          cat "ursusboot/dist/${{ matrix.board }}/SHA256SUMS"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ursusboot-${{ matrix.board }}-${{ github.sha }}
+          path: ursusboot/dist/${{ matrix.board }}/
+          if-no-files-found: error
+          retention-days: 30

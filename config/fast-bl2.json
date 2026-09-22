@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "purpose": "Fast UBI-scan BL2 (ATF) built from official OpenWrt; UrsusBoot TEST63+ is pinned to the resulting preloader.",
+  "openwrt_repo": "openwrt/openwrt",
+  "openwrt_ref": "3d1645ee26d6a2e20be71d7fa1716721bac78e53",
+  "atf_patch": "scripts/atf/atf-airoha-083c14f-ubi-scan-fastpath.patch",
+  "atf_patch_upstream": "Yuzhii0718/atf-airoha@083c14faf832cb2de3d7dc8368dc8fb1c8f6a1e5",
+  "hw_status": "HW_PENDING"
+}

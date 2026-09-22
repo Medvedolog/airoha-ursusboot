@@ -93,6 +93,12 @@ drivers/gpio/ursus_an7581_safe_gpio.c
 defenvs/                  per-board default environments
 ```
 
+## Relationship to UrsusFlasher and Vanilla U-Boot
+
+- **airoha-ursusboot** (this repository): firmware source-of-truth — UrsusBoot versions (TEST63+), MD/MF board profiles, fast BL2 / preloader provenance, UrsusBoot artifacts.
+- **airoha-router-ursusflasher**: host/orchestrator — backup, transports, readback, diagnostics, OpenWrt payloads and the ONECLICK/EXPERT kit. It pins an exact commit of this repository; MD and MF artifacts must come from that same commit, otherwise the kit build fails closed.
+- **Vanilla U-Boot**: a separate product line (plain OpenWrt U-Boot for the final UBI layout), not built from this framework.
+
 ## Documentation
 
 The short README is the architecture/overview entry point. Operational detail lives in `docs/`:
@@ -113,6 +119,10 @@ The short README is the architecture/overview entry point. Operational detail li
 | `src/u-boot/repack_persistent_fip.py` | Preserve the proven reference FIP lineage while replacing its BL33 payload with the U-Boot produced by the current build. |
 | `src/u-boot/lzma1ext_noeopm.c` | Proven host-side LZMA1EXT/no-EOPM packer for the Airoha BL33 contract. |
 | `scripts/make-install-mtd0.py` | Merge the board 512 KiB boot-area template with the newly repacked FIP into a flashable `mtd0` image. |
+| `scripts/ci/build-release.sh` | Release build: fast-scan BL2 from official OpenWrt -> preloader FIP -> UrsusBoot pinned to it -> packaging -> `PROVENANCE.json`. Used by CI and by UrsusFlasher at an exact commit. |
+| `scripts/pin_ubi_preloader.py` | Compile the SHA256 of a given UBI preloader (and its 128 KiB BL2 candidate) into UrsusBoot (`URSUS_UBI_PRELOADER`). |
+| `scripts/atf/` | ATF UBI scan fast-path patch, OpenWrt `Build/Prepare` hook, BL2 -> preloader FIP wrapper. |
+| `scripts/mf/` | XG-040G-MF runtime derivation (source transforms, MedveFlasher-lineage FIP repack). |
 | `scripts/qa.sh` | Offline QA: byte-checks the board templates and the reference FIP, validates `board-profiles.json`, compiles the Python helpers, asserts the source tree is complete and self-contained. Run by CI. |
 | `scripts/resolve_board_profile.py` | Read one field of one profile out of `config/board-profiles.json`. |
 | `scripts/apply_kconfig_fragment.py` | Apply a `.cfg` Kconfig fragment onto a `.config`. |

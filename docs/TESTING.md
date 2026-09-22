@@ -114,6 +114,17 @@ For supported image classes:
 - reboot manually;
 - confirm the expected OpenWrt/stock boot result.
 
+### TEST63 fast-BL2 / preloader acceptance
+
+For each board (MD and MF), from Nokia stock:
+
+- STOCK->UBI log shows `URSUS_UBI_PRELOADER_VALID ... sha256=<ubi_preloader_sha256>` and `URSUS_UBI_MIGRATION_BL2_VERIFIED ... sha256=<ubi_bl2_image_sha256>` matching `PROVENANCE.json`;
+- readback of the BL2 area after BL2-LAST equals the 128 KiB candidate (same digest);
+- the device then boots OpenWrt from UBI without Recovery; with UART, the BL2 log shows the fast scan path;
+- time from power-on to OpenWrt noticeably shorter than with the previous preloader;
+- WebFailsafe/`/api/status` reports `0.1.0-alpha5-UBIUX1-TEST63`;
+- MF: `URSUS_MAC_SOURCE=RI` on boot after migration (first HW check of the MF MAC path).
+
 ## Reporting a test
 
 A useful hardware report includes:

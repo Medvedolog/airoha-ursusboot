@@ -68,7 +68,8 @@
       ],
       "binary_forbid": [
         "Nokia XG-040G-MF"
-      ]
+      ],
+      "openwrt_device": "nokia_xg-040g-md-ubi"
     },
     "xg040-mf": {
       "vendor": "Nokia",
@@ -157,7 +158,8 @@
         "URSUS_MF2_READONLY_REJECT operation=FIP_UPDATE",
         "URSUS_MF2_STOCKBRIDGE_DISABLED",
         "Nokia XG-040G-MD"
-      ]
+      ],
+      "openwrt_device": "nokia_xg-040g-mf-ubi"
     },
     "xg140-md": {
       "vendor": "Bell/Nokia",
@@ -185,7 +187,8 @@
       "reference_fip": null,
       "packaging": null,
       "preloader_pin_base": null,
-      "source_transforms": []
+      "source_transforms": [],
+      "openwrt_device": null
     }
   }
 }

@@ -78,7 +78,9 @@ CROSS="$(find "$SEARCH_ROOT" \( -type f -o -type l \) \
 [ -n "$CROSS" ] || { echo "AArch64 OpenWrt compiler not found under $SDK" >&2; exit 3; }
 export CROSS_COMPILE="${CROSS%gcc}"
 HOST_DIR=""
-if [ -d "$SDK/staging_dir" ]; then
+if [ -d "$SDK/staging_dir/host" ]; then
+    HOST_DIR="$SDK/staging_dir/host"  # SDK and full buildroot (which also has hostpkg/)
+elif [ -d "$SDK/staging_dir" ]; then
     HOST_DIR="$(find "$SDK/staging_dir" -maxdepth 1 -type d -name 'host*' | head -1 || true)"
 fi
 if [ -n "$HOST_DIR" ] && [ -d "$HOST_DIR/bin" ]; then

@@ -18,21 +18,44 @@ Before adding a board, establish from real evidence:
 
 Do not copy another board's offsets merely because the SoC matches.
 
+## Modular model
+
+UrsusBoot is one common Airoha firmware line, not one near-separate U-Boot per router:
+
+```text
+                    common UrsusBoot (src/u-boot)
+                          |
+          +---------------+---------------+
+          |                               |
+        AN7581                          AN7583
+   ursusboot-soc-an7581.cfg        ursusboot-soc-an7583.cfg
+          |                               |
+    +-----+-----+                         |
+    |           |                         |
+ XG-040G-MD  XG-140G-MD              XG-040G-MF
+    |           |                         |
+ board policy / board fragment / boot-area template /
+ donor FIP lineage / recovery inputs / identity logic   (per board)
+```
+
+WebFailsafe, the HTTP API, UBI creation/migration, the FIP updater, diagnostics, the shared lwIP fixes and the common commands stay common code. A new Airoha board adds, and only adds:
+
+- a profile in `config/board-profiles.json`;
+- a SoC fragment, only if the SoC is new;
+- a board fragment and a board policy header (`boards/*.h`);
+- flash/layout parameters and the stock boot contract;
+- boot-area template and donor FIP with provenance;
+- recovery inputs (UART/BootROM);
+- board-specific identity/MAC/RI logic only where it really differs;
+- a `source_transforms` entry only for a derivation that cannot yet be expressed by policy (MF currently uses `mf-runtime`).
+
+This does **not** mean a new router is one JSON entry. The hardware contract stays per board and must be proven: SoC/BL2/ATF boot path, NAND geometry and the exact SPI-NAND part, FIP/container layout, stock bootloader handoff, env/storage layout, RI/BOSA/MAC semantics, SerDes arguments, recovery path, destructive migration geometry and finally HW PASS.
+
+The final Vanilla U-Boot (plain OpenWrt U-Boot for the finished UBI layout) is a separate product line and is not built from this framework.
+
 ## Current build model
 
-The production build currently consumes a **complete config** from the profile's `config` field.
-
-The registry also contains:
-
-- `fragments`;
-- `board_policy_header`;
-- `boot_policy`;
-- `layout_policy`;
-- `environment_policy`.
-
-Those fields describe the intended modular architecture, but the fragment/policy helpers are **porting scaffolding today**, not the authoritative production build path. `build.sh` does not yet synthesize a new board config from the fragment list.
-
-This distinction is deliberate: MD/MF use proven full configs rather than silently composing an unproven target.
+Since TEST63 the fragments and board policy are part of the real build: `build.sh` starts from the profile's proven full `config`, merges `fragments` (+ `role_fragments`) and fails if `olddefconfig` drops any of them; the board policy header is applied to the work copy. A board is still built from a proven full config rather than synthesized from fragments alone.
 
 ## Profile schema
 
@@ -61,9 +84,19 @@ Example shape:
   "allowed_roles": ["persistent", "ram-recovery"],
   "config": "example.full.config",
   "boot_area_template": "boards/example/stock-mtd0-template.bin",
-  "reference_fip": "reference/example/proven-donor.fip"
+  "reference_fip": "reference/example/proven-donor.fip",
+  "packaging": "persistent-fip",
+  "source_transforms": [],
+  "preloader_pin_base": "md",
+  "openwrt_device": "vendor_model-ubi",
+  "config_require": ["CONFIG_MTD_SPI_NAND"],
+  "config_forbid": [],
+  "binary_require": ["Model"],
+  "binary_forbid": []
 }
 ```
+
+Optional: `role_fragments` and `env_overlay` (per runtime role), `uart_preloader` (recovery pair). `preloader_pin_base` names the digest set compiled into the tree before pinning; `openwrt_device` is the OpenWrt device whose fast-scan BL2 the release build uses.
 
 Use `null` rather than inventing a path for a component that is not yet proven. The resolver and QA intentionally reject an attempted complete build when required fields are absent.
 

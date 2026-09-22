@@ -28,11 +28,46 @@ Current intent:
 
 | Profile | SoC | Config | Boot template | Donor FIP | Build status |
 |---|---|---|---|---|---|
-| `xg040-md` | AN7581 | `u-boot.TEST61.full.config` | yes | yes | complete persistent packaging path |
-| `xg040-mf` | AN7583 | `an7583_nokia_xg-040g-mf_MF2_RAM_defconfig` | yes | not yet declared | raw build path; no complete persistent FIP lineage yet |
+| `xg040-md` | AN7581 | `u-boot.TEST61.full.config` + fragments | yes | `reference/md/` | persistent FIP + 512 KiB install image |
+| `xg040-mf` | AN7583 | `an7583_nokia_xg-040g-mf_MF2_RAM_defconfig` + fragments + `ursusboot-runtime-mf.cfg` | yes | `reference/mf/` (MedveFlasher rc35) | persistent runtime (`u-boot.runtime.lzma`) + UART RAM-recovery pair |
 | `xg140-md` | AN7581 | not declared | not declared | not declared | described/scaffolded, intentionally not buildable |
 
 A profile with `config: null` is expected to fail explicitly rather than produce a guessed build.
+
+## Build pipeline
+
+`build.sh <board> [role]` never touches `src/u-boot`. It copies the tree to `work/<board>-<role>/u-boot` and applies, in order:
+
+1. profile `source_transforms` (MF: `mf-runtime`, the HW-cycled MF derivation in `scripts/mf/`);
+2. runtime role (`scripts/apply_runtime_role.py`);
+3. `env_overlay` for the role (MF runtime environment);
+4. board policy header `boards/<board_policy_header>`;
+5. identity from `VERSION` (`.scmversion`, `URSUS_VERSION`);
+6. optional UBI preloader pin (`URSUS_UBI_PRELOADER`, see below);
+7. `config` + profile `fragments` + `role_fragments`, merged and re-checked after `olddefconfig`;
+8. `config_require` / `config_forbid`, compile, `binary_require` / `binary_forbid`;
+9. `packaging`: `persistent-fip` (MD) or `mf-runtime` (MF).
+
+`xxd` is required by U-Boot's environment generator; if the host has none, `build.sh` uses the SDK's `scripts/xxdi.pl`.
+
+## UBI preloader pin and fast-scan BL2
+
+UrsusBoot's STOCK->UBI migration accepts a preloader only by compiled-in SHA256 digests (preloader and 128 KiB BL2 candidate). Without `URSUS_UBI_PRELOADER` the HW-proven MD/MF preloader digests stay compiled in. To build for another preloader (for example the fast-scan BL2):
+
+```sh
+python3 scripts/atf/wrap_bl2_preloader.py --bl2 an7581-bl2.bin --out preloader.fip
+URSUS_UBI_PRELOADER=preloader.fip OPENWRT_SDK=... ./build.sh xg040-md
+```
+
+The release path does all of this from an official OpenWrt checkout at `config/fast-bl2.json` `openwrt_ref`:
+
+```sh
+OPENWRT_DIR=/path/to/openwrt ./scripts/ci/build-release.sh xg040-md
+```
+
+It builds the host tools and toolchain, applies `scripts/atf/atf-airoha-083c14f-ubi-scan-fastpath.patch` inside the ATF package's `Build/Prepare` (`scripts/atf/hook_atf_fastpath_patch.py`), proves the compiled tree is patched, wraps the BL2, builds UrsusBoot pinned to it with the same OpenWrt toolchain and writes `dist/<board>/PROVENANCE.json`. CI (`.github/workflows/build.yml`) runs it for MD and MF.
+
+The fast scan exists only in BL2 (ATF). UrsusBoot's own `ubi part` still performs a full UBI scan (`CONFIG_MTD_UBI_FASTMAP` is off).
 
 ## Persistent build
 
