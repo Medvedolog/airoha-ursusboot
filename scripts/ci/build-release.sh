@@ -68,34 +68,6 @@ OPENWRT_SDK="$OPENWRT_DIR" URSUS_UBI_PRELOADER="$OUTBL2/preloader.fip" ./build.s
 OUT="$ROOT/dist/$BOARD"
 cp "$OUTBL2/preloader.fip" "$OUT/ursusboot-ubi-preloader.fip"
 cp "$OUTBL2/${SOC}-bl2.bin" "$OUT/${SOC}-bl2.bin"
-python3 - "$OUT" "$BOARD" "$(cat VERSION)" "$(git rev-parse HEAD)" "$WANT_REF" "$ATF_SRC" "$PATCH" "$(cfg atf_patch_upstream)" <<'PY'
-import hashlib, json, sys
-from pathlib import Path
-out, board, version, commit, owrt, atf_src, patch, upstream = sys.argv[1:]
-out = Path(out)
-sha = lambda p: hashlib.sha256(Path(p).read_bytes()).hexdigest()
-pre = (out / "ursusboot-ubi-preloader.fip").read_bytes()
-cand = b"\xff" * 0x800 + pre
-cand += b"\xff" * (0x20000 - len(cand))
-info = dict(l.split("=", 1) for l in (out / "BUILD-INFO.txt").read_text().splitlines() if "=" in l)
-if info.get("UBI_PRELOADER_SHA256") != hashlib.sha256(pre).hexdigest():
-    raise SystemExit("BUILD-INFO pin does not match the packaged preloader")
-prov = {
-    "schema": 1,
-    "repo": "Medvedolog/airoha-ursusboot",
-    "commit": commit,
-    "version": version,
-    "board": board,
-    "openwrt_ref": owrt,
-    "atf_source_version": atf_src,
-    "atf_patch_sha256": sha(patch),
-    "atf_patch_upstream": upstream,
-    "ubi_preloader_sha256": hashlib.sha256(pre).hexdigest(),
-    "ubi_bl2_image_sha256": hashlib.sha256(cand).hexdigest(),
-    "files": {p.name: sha(p) for p in sorted(out.iterdir()) if p.is_file() and p.name != "PROVENANCE.json"},
-    "hw_status": "HW_PENDING",
-}
-(out / "PROVENANCE.json").write_text(json.dumps(prov, indent=2) + "\n")
-print(json.dumps({k: v for k, v in prov.items() if k != "files"}, indent=2))
-PY
+python3 "$ROOT/scripts/ci/write_provenance.py" --out "$OUT" --board "$BOARD" --openwrt-ref "$WANT_REF" \
+    --atf-source "$ATF_SRC" --atf-patch "$PATCH" --atf-upstream "$(cfg atf_patch_upstream)"
 echo "URSUSBOOT_RELEASE=OK board=$BOARD"
