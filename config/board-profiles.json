@@ -34,7 +34,41 @@
       ],
       "config": "u-boot.TEST61.full.config",
       "boot_area_template": "boards/nokia-xg040-md/stock-mtd0-template.bin",
-      "reference_fip": "reference/md/ursusboot-test61-update.fip"
+      "reference_fip": "reference/md/ursusboot-test61-update.fip",
+      "packaging": "persistent-fip",
+      "source_transforms": [],
+      "preloader_pin_base": "md",
+      "config_require": [
+        "CONFIG_TARGET_AN7581",
+        "CONFIG_PCS_AIROHA_AN7581",
+        "CONFIG_PINCTRL_AIROHA_AN7581",
+        "CONFIG_ENV_IS_IN_UBI",
+        "CONFIG_ENV_REDUNDANT",
+        "CONFIG_CMD_UBI",
+        "CONFIG_MTD_UBI",
+        "CONFIG_MTD_SPI_NAND",
+        "CONFIG_CMD_TFTPBOOT",
+        "CONFIG_CMD_WGET",
+        "CONFIG_USE_PREBOOT",
+        "CONFIG_ENV_OVERWRITE"
+      ],
+      "config_forbid": [
+        "CONFIG_CMD_UBIFS",
+        "CONFIG_CMD_PXE",
+        "CONFIG_BOOTMETH_EXTLINUX",
+        "CONFIG_BOOTMETH_EXTLINUX_PXE",
+        "CONFIG_PXE_UTILS"
+      ],
+      "binary_require": [
+        "URSUS_BOARD_PROFILE=xg040-md",
+        "Nokia XG-040G-MD",
+        "URSUS_UBI_MIGRATION_ENABLED=1",
+        "FM25G01B",
+        "FM25G02B"
+      ],
+      "binary_forbid": [
+        "Nokia XG-040G-MF"
+      ]
     },
     "xg040-mf": {
       "vendor": "Nokia",
@@ -54,12 +88,76 @@
       "derivation": "native-mf",
       "default_role": "persistent",
       "allowed_roles": [
-        "persistent",
-        "ram-recovery"
+        "persistent"
       ],
       "config": "an7583_nokia_xg-040g-mf_MF2_RAM_defconfig",
       "boot_area_template": "boards/nokia-xg040-mf/stock-mtd0-template.bin",
-      "reference_fip": null
+      "reference_fip": "reference/mf/medve-rc35-mf-recovery-safe-bl31-uboot.fip",
+      "uart_preloader": "reference/mf/medve-rc35-mf-uart-preloader.bin",
+      "packaging": "mf-runtime",
+      "source_transforms": [
+        "mf-runtime"
+      ],
+      "role_fragments": {
+        "persistent": [
+          "ursusboot-runtime-mf.cfg"
+        ]
+      },
+      "env_overlay": {
+        "persistent": {
+          "src": "config/an7583_nokia_xg-040g-mf_RUNTIME_env",
+          "dst": "defenvs/an7583_nokia_xg-040g-mf_runtime_env"
+        }
+      },
+      "preloader_pin_base": "mf",
+      "config_require": [
+        "CONFIG_TARGET_AN7583",
+        "CONFIG_MTD",
+        "CONFIG_DM_MTD",
+        "CONFIG_MTD_SPI_NAND",
+        "CONFIG_MTD_UBI",
+        "CONFIG_CMD_MTD",
+        "CONFIG_CMD_UBI",
+        "CONFIG_CMD_TFTPBOOT",
+        "CONFIG_NET_LWIP",
+        "CONFIG_AIROHA_ETH",
+        "CONFIG_PCS_AIROHA_AN7583",
+        "CONFIG_PINCTRL_AIROHA_AN7583",
+        "CONFIG_ENV_IS_IN_UBI",
+        "CONFIG_ENV_REDUNDANT",
+        "CONFIG_CONSOLE_RECORD",
+        "CONFIG_USE_PREBOOT",
+        "CONFIG_ENV_OVERWRITE"
+      ],
+      "config_forbid": [
+        "CONFIG_ENV_IS_NOWHERE"
+      ],
+      "binary_require": [
+        "Nokia XG-040G-MF",
+        "Airoha AN7583",
+        "URSUS_BOARD_PROFILE=xg040-mf",
+        "URSUS_MF2_HWTEST8_LED_END result=OK",
+        "URSUS_UBI_MIGRATION_ENABLED=1",
+        "URSUS_UBI_UPDATE_ENABLED=1",
+        "URSUS_STOCK_LAYOUT_INSTALL_ENABLED=1",
+        "URSUS_FIP_SELFUPDATE_ENABLED=1",
+        "URSUS_STOCKBOOT_TCBOOT_MF_ARGS pon=00 ethernet=12 wifi1=05 wifi2=05 usb1=00 usb2=02",
+        "ursusstockboot",
+        "nokia,xg-040g-mf",
+        "XG040GMF",
+        "AN7583DT",
+        "URSUS_MAC_SOURCE=RI",
+        "FM25G01B",
+        "FM25G02B"
+      ],
+      "binary_forbid": [
+        "MF2 RAM-only build: persistent operations disabled",
+        "URSUS_MF2_READONLY_REJECT operation=UBI_UPDATE",
+        "URSUS_MF2_READONLY_REJECT operation=UBI_MIGRATION",
+        "URSUS_MF2_READONLY_REJECT operation=FIP_UPDATE",
+        "URSUS_MF2_STOCKBRIDGE_DISABLED",
+        "Nokia XG-040G-MD"
+      ]
     },
     "xg140-md": {
       "vendor": "Bell/Nokia",
@@ -84,7 +182,10 @@
       ],
       "config": null,
       "boot_area_template": null,
-      "reference_fip": null
+      "reference_fip": null,
+      "packaging": null,
+      "preloader_pin_base": null,
+      "source_transforms": []
     }
   }
 }

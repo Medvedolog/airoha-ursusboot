@@ -1,0 +1,21 @@
+MF (Nokia XG-040G-MF / Airoha AN7583) reference inputs for the mf-runtime packaging.
+
+Source: https://github.com/Medvedolog/nokia-router-medveflasher
+Commit: 342cac4cb99a924f3d83eb8e4b5259490377704e (rc35, MIT license: scripts/mf/medve/LICENSE.MedveFlasher)
+
+medve-rc35-mf-recovery-safe-bl31-uboot.fip
+  from data/payloads/nokia-xg-040g-mf-an7583-uart-recovery-safe-bl31-uboot.fip
+  size 339010, sha256 8bfe8870e44923a463a3ed66c8b1906214f5c820fd8c15865c63430185de8bb2
+  role: donor FIP (BL31 kept byte-exact, BL33 replaced by the UrsusBoot build)
+
+medve-rc35-mf-uart-preloader.bin
+  from data/payloads/nokia-xg-040g-mf-an7583-uart-preloader.bin
+  size 118322, sha256 c2ac1c183b18bc34632c958dfe0bd1dfdfb607f090e39c41126956641893362f
+  role: Airoha BootROM/UART RAM-recovery preloader shipped next to ursusboot-runtime-ram.fip
+
+scripts/mf/medve/patch_recovery_safe_fip.py and lzma1ext_noeopm.c
+  from data/recovery/recovery-safe-uboot-source/ (same commit): FIP parser and the
+  MF LZMA1EXT/no-EOPM encoder (lc=3 lp=0 pb=2) used by scripts/mf/mf2_repack_from_medve.py.
+
+These are identical to the inputs the UrsusFlasher MF TEST62 hardware-cycle build used;
+the build no longer needs the MedveFlasher repository.

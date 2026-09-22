@@ -1,0 +1,10 @@
+ipaddr=192.168.1.1
+serverip=192.168.1.254
+loadaddr=0x90000000
+console=earlycon=uart8250,mmio32,0x11002000 console=ttyS0
+bootdelay=0
+bootcmd=ursusdispatch
+preboot=run ethaddr_factory ; led $bootled_status on
+bootled_status=green:power
+ethaddr_factory=setenv _ethaddr_prev $ethaddr ; if ubi part ubi && ubi read 0x90000000 ri && env readmem -b ethaddr 0x9000003e 0x6 ; then if itest.s "$ethaddr" != "00:00:00:00:00:00" && itest.s "$ethaddr" != "ff:ff:ff:ff:ff:ff" ; then echo URSUS_MAC_SOURCE=RI ethaddr=$ethaddr ; else if env exists _ethaddr_prev ; then setenv ethaddr $_ethaddr_prev ; echo WARN: URSUS_MAC_INVALID_RI fallback=persisted ethaddr=$ethaddr ; else setenv ethaddr ; echo WARN: URSUS_MAC_INVALID_RI fallback=random ; fi ; fi ; else if env exists _ethaddr_prev ; then setenv ethaddr $_ethaddr_prev ; echo WARN: URSUS_MAC_RI_READ_FAIL fallback=persisted ethaddr=$ethaddr ; else setenv ethaddr ; echo WARN: URSUS_MAC_RI_READ_FAIL fallback=random ; fi ; fi ; setenv _ethaddr_prev
+reset_factory=ubi part ubi && mw $loadaddr 0x0 0x800 && ubi write $loadaddr ubootenv 0x800 && ubi write $loadaddr ubootenv2 0x800 && env default -f -a && run ethaddr_factory && saveenv && saveenv
