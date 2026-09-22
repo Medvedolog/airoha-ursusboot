@@ -157,10 +157,28 @@ def patch_stock(path: Path) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def patch_web_probe(path: Path) -> None:
+    """WebFailsafe layout probe: recognise the board's stock slot header magic.
+
+    The MD-derived probe hard-coded "HDR2"; on HDR3 boards (XG-040G-MF) it
+    reported stock_fit=false / STOCK_INCOMPLETE for a healthy stock layout.
+    """
+    text = path.read_text(encoding="utf-8")
+    include = "#include <ursus_board_policy.h>\n"
+    if include not in text:
+        text = replace_once(text, "#include <command.h>\n", "#include <command.h>\n" + include, "web probe include")
+    text = replace_once(text, 'memcmp(hdrpage, "HDR2", 4)', "memcmp(hdrpage, URSUS_BOARD_STOCK_HDR_MAGIC, 4)",
+                        "web stock header magic")
+    path.write_text(text, encoding="utf-8")
+
+
 def verify(root: Path) -> None:
     dispatch = (root / "cmd/ursusdispatch.c").read_text(encoding="utf-8")
     stock = (root / "cmd/ursusstock.c").read_text(encoding="utf-8")
     ui = (root / "include/ursusweb_ui.inc").read_text(encoding="utf-8")
+    web = (root / "cmd/ursusweb.c").read_text(encoding="utf-8")
+    if "memcmp(hdrpage, URSUS_BOARD_STOCK_HDR_MAGIC, 4)" not in web:
+        raise SystemExit("board policy WebFailsafe stock header probe missing")
     for token in (
         "URSUS_BOARD_PROFILE_MARKER",
         "URSUS_BOARD_ALLOW_UBI_BOOT",
@@ -189,7 +207,7 @@ def verify(root: Path) -> None:
         'memcmp(hdrpage, "HDR2", 4)',
         'memcmp(hdrpage, "HDR3", 4)',
     ):
-        if forbidden in stock:
+        if forbidden in stock or ("memcmp" in forbidden and forbidden in web):
             raise SystemExit(f"hard-coded board policy survived: {forbidden}")
 
 
@@ -209,6 +227,7 @@ def main() -> int:
     patch_web_ui(root / "include" / "ursusweb_ui.inc")
     patch_dispatch(root / "cmd" / "ursusdispatch.c")
     patch_stock(root / "cmd" / "ursusstock.c")
+    patch_web_probe(root / "cmd" / "ursusweb.c")
     verify(root)
     print(f"URSUS_BOARD_POLICY_APPLY=PASS policy={policy.stem} web_identity=policy")
     return 0

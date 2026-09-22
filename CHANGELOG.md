@@ -29,6 +29,7 @@ TEST63 makes this repository the single firmware source-of-truth for the Airoha 
 - MF donor FIP, UART preloader and the MedveFlasher FIP parser/encoder are vendored with provenance (`reference/mf/`, `scripts/mf/medve/`); MedveFlasher is no longer a build dependency.
 - The MF runtime environment gains the RI-derived MAC logic already used on MD (`preboot=run ethaddr_factory`, `reset_factory`).
 - Only the `persistent` role is offered for MF in this pipeline.
+- Fixed an MD-only assumption in the WebFailsafe layout probe: `cmd/ursusweb.c` matched the stock slot header only against `HDR2`, so on XG-040G-MF (`HDR3`) `/api/status` reported `stock_fit=false` / `STOCK_INCOMPLETE` for a healthy stock layout. The board policy now substitutes `URSUS_BOARD_STOCK_HDR_MAGIC` there as it already did in `cmd/ursusstock.c` (MD unchanged: `HDR2`). Found through the UrsusFlasher TEST62 MF CI binary contract.
 
 ### Fast-scan BL2 and preloader pinning
 
