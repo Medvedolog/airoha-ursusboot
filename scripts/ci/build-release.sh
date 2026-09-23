@@ -32,6 +32,18 @@ rm -rf "$OUTBL2"; mkdir -p "$OUTBL2"
 
 # --- OpenWrt target, host tools and toolchain -------------------------------
 cd "$OPENWRT_DIR"
+# Pinned OpenWrt patches (Fudan SPI-NAND in uboot-airoha). Idempotent on a reused checkout.
+OWRT_PATCHES="$(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1])).get("openwrt_patches", [])))' "$CFG")"
+while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    if git apply --reverse --check "$ROOT/$p" 2>/dev/null; then
+        echo "OPENWRT_PATCH=ALREADY_APPLIED $p"
+    else
+        git apply --whitespace=nowarn --check "$ROOT/$p" || { echo "OpenWrt patch does not apply: $p" >&2; exit 3; }
+        git apply --whitespace=nowarn "$ROOT/$p"
+        echo "OPENWRT_PATCH=APPLIED $p sha256=$(sha256sum "$ROOT/$p" | cut -d' ' -f1)"
+    fi
+done <<< "$OWRT_PATCHES"
 cat > .config <<EOF
 CONFIG_TARGET_airoha=y
 CONFIG_TARGET_airoha_${SOC}=y
@@ -74,7 +86,8 @@ VLZMA="staging_dir/target-aarch64_cortex-a53_musl/image/${UVAR}-u-boot.lzma"
 [ -s "$VLZMA" ] || { echo "Vanilla U-Boot NT_FW not staged: $VLZMA" >&2; exit 4; }
 VBIN="$(find build_dir -type f -path "*/u-boot-${UVAR}/u-boot-*/u-boot.bin" -print -quit)"
 [ -s "$VBIN" ] || { echo "Vanilla U-Boot u-boot.bin not found for $UVAR" >&2; exit 4; }
-grep -Fq FM25G02B "$(dirname "$VBIN")/drivers/mtd/nand/spi/fmsh.c"
+grep -Fq FM25G02B "$(dirname "$VBIN")/drivers/mtd/nand/spi/fmsh.c" \
+    || { echo "Vanilla U-Boot for $UVAR has no FM25G02B in fmsh.c (OpenWrt patch missing?)" >&2; exit 4; }
 python3 -c "import lzma,sys; assert lzma.decompress(open(sys.argv[1],'rb').read(), format=lzma.FORMAT_ALONE) == open(sys.argv[2],'rb').read(), 'staged u-boot.lzma is not this u-boot.bin'" "$VLZMA" "$VBIN"
 cp "$VLZMA" "$OUTBL2/vanilla-u-boot.lzma"
 cp "$VBIN" "$OUTBL2/vanilla-u-boot.bin"
@@ -96,6 +109,7 @@ cp "$OUTBL2/preloader.fip" "$OUT/ursusboot-ubi-preloader.fip"
 cp "$OUTBL2/${SOC}-bl2.bin" "$OUT/${SOC}-bl2.bin"
 cp "$OUTBL2/vanilla-u-boot.bin" "$OUT/vanilla-u-boot.bin"
 python3 "$ROOT/scripts/ci/write_provenance.py" --out "$OUT" --board "$BOARD" --openwrt-ref "$WANT_REF" \
+    --openwrt-patches-from "$CFG" \
     --atf-source "$ATF_SRC" --atf-patch "$PATCH" --atf-upstream "$(cfg atf_patch_upstream)" \
     --uboot-variant "$UVAR"
 echo "URSUSBOOT_RELEASE=OK board=$BOARD"

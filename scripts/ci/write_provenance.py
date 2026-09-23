@@ -24,6 +24,7 @@ def main() -> None:
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--board", required=True)
     ap.add_argument("--openwrt-ref", required=True)
+    ap.add_argument("--openwrt-patches-from", required=True, type=Path, help="config/fast-bl2.json")
     ap.add_argument("--atf-source", required=True)
     ap.add_argument("--atf-patch", required=True, type=Path)
     ap.add_argument("--atf-upstream", required=True)
@@ -49,6 +50,7 @@ def main() -> None:
         "version": (ROOT / "VERSION").read_text().strip(),
         "board": a.board,
         "openwrt_ref": a.openwrt_ref,
+        "openwrt_patches": {p: sha(ROOT / p) for p in json.loads(a.openwrt_patches_from.read_text()).get("openwrt_patches", [])},
         "atf_source_version": a.atf_source,
         "atf_patch_sha256": sha(a.atf_patch),
         "atf_patch_upstream": a.atf_upstream,

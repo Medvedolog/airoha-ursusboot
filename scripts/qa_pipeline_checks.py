@@ -30,6 +30,9 @@ def profiles(root: Path) -> None:
         "c2ac1c183b18bc34632c958dfe0bd1dfdfb607f090e39c41126956641893362f"
     cfg = json.loads((root / "config/fast-bl2.json").read_text())
     assert (root / cfg["atf_patch"]).is_file() and len(cfg["openwrt_ref"]) == 40
+    # The Vanilla U-Boot needs Fudan FM25G02B in uboot-airoha (openwrt/openwrt PR 24025).
+    assert cfg["openwrt_patches"] == ["scripts/openwrt/openwrt-pr24025-uboot-fmsh-fm25g02b.patch"], cfg
+    assert sha(cfg["openwrt_patches"][0]) == "a3e843e60c7efdf6f103c04153c40b711a369962a533f370ffbc38aa0dcf314e"
     for name in ("xg040-md", "xg040-mf"):
         p = reg["profiles"][name]
         for k in ("packaging", "preloader_pin_base", "openwrt_device", "config_require",

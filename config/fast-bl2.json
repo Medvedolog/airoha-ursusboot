@@ -5,5 +5,9 @@
   "openwrt_ref": "3d1645ee26d6a2e20be71d7fa1716721bac78e53",
   "atf_patch": "scripts/atf/atf-airoha-083c14f-ubi-scan-fastpath.patch",
   "atf_patch_upstream": "Yuzhii0718/atf-airoha@083c14faf832cb2de3d7dc8368dc8fb1c8f6a1e5",
-  "hw_status": "HW_PENDING"
+  "hw_status": "HW_PENDING",
+  "openwrt_patches": [
+    "scripts/openwrt/openwrt-pr24025-uboot-fmsh-fm25g02b.patch"
+  ],
+  "openwrt_patches_note": "Applied to the OpenWrt checkout before building: openwrt/openwrt PR 24025 (uboot-airoha Fudan FM25G01B/FM25G02B SPI-NAND), needed by the Vanilla U-Boot."
 }
