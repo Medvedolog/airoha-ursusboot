@@ -552,6 +552,56 @@ static int ursus_fip_validate_kind(ulong addr, size_t len, bool stock_limit, enu
                                             ursus_fip_validate(addr, len, stock_limit);
 }
 
+/*
+ * The UBI environment volumes still hold UrsusBoot's environment (the STOCK->UBI
+ * migration saves it). Vanilla U-Boot would load it and stop at its prompt
+ * (no bootmenu_N, bootcmd=ursusdispatch). Invalidate both copies the way
+ * OpenWrt's own reset_factory does after a FIP write, so Vanilla starts from its
+ * default environment and runs its first-boot setup (MAC from ri, own env).
+ */
+#define URSUS_VANILLA_ENV_RESET_LEN 0x800
+
+static int ursus_vanilla_reset_env(void)
+{
+    static const char *const vols[] = { "ubootenv", "ubootenv2" };
+    size_t i, j;
+    int ret;
+
+    for (i = 0; i < ARRAY_SIZE(vols); i++) {
+        u8 *buf;
+
+        if (run_commandf("ubi check %s", vols[i])) {
+            printf("URSUS_VANILLA_ENV_RESET_FAIL volume=%s reason=missing\n", vols[i]);
+            return -ENOENT;
+        }
+        buf = map_sysmem(URSUS_UBI_READBACK_ADDR, URSUS_VANILLA_ENV_RESET_LEN);
+        memset(buf, 0, URSUS_VANILLA_ENV_RESET_LEN);
+        unmap_sysmem(buf);
+        ret = run_commandf("ubi write 0x%08lx %s 0x%x", URSUS_UBI_READBACK_ADDR, vols[i],
+                           URSUS_VANILLA_ENV_RESET_LEN);
+        if (ret) {
+            printf("URSUS_VANILLA_ENV_RESET_FAIL volume=%s reason=write ret=%d\n", vols[i], ret);
+            return -EIO;
+        }
+        buf = map_sysmem(URSUS_UBI_READBACK_ADDR, URSUS_VANILLA_ENV_RESET_LEN);
+        memset(buf, 0xa5, URSUS_VANILLA_ENV_RESET_LEN);
+        unmap_sysmem(buf);
+        ret = run_commandf("ubi read 0x%08lx %s 0x%x", URSUS_UBI_READBACK_ADDR, vols[i],
+                           URSUS_VANILLA_ENV_RESET_LEN);
+        buf = map_sysmem(URSUS_UBI_READBACK_ADDR, URSUS_VANILLA_ENV_RESET_LEN);
+        for (j = 0; !ret && j < URSUS_VANILLA_ENV_RESET_LEN; j++)
+            if (buf[j])
+                ret = -EBADMSG;
+        unmap_sysmem(buf);
+        if (ret) {
+            printf("URSUS_VANILLA_ENV_RESET_FAIL volume=%s reason=readback ret=%d\n", vols[i], ret);
+            return -EIO;
+        }
+    }
+    printf("URSUS_VANILLA_ENV_RESET_OK volumes=ubootenv,ubootenv2 next_boot=VANILLA_DEFAULT_ENV\n");
+    return 0;
+}
+
 static int ursus_detect_ubi_layout(bool *is_ubi)
 {
     u8 hdr[4];
@@ -961,12 +1011,20 @@ int ursus_fip_update_step(void)
         ursus_up.stage = URSUS_UP_UBI_ROLLBACK;
             break;
         }
+        /* Vanilla must not boot with UrsusBoot's environment; if it cannot be
+         * reset, keep UrsusBoot (its environment is consistent) instead. */
+        if (ursus_up.kind == URSUS_FIP_KIND_VANILLA && ursus_vanilla_reset_env()) {
+            printf("URSUS_UPDATE_POSTCOMMIT_ENV_FAIL action=ROLLBACK\n");
+            ursus_up.last_success_stage = URSUS_UP_UBI_VERIFY;
+            ursus_up.stage = URSUS_UP_UBI_ROLLBACK;
+            break;
+        }
         ursus_up.stage = URSUS_UP_COMPLETE;
         ursus_up.active = false;
         printf("URSUS_UPDATE_COMMIT_OK layout=UBI kind=%s backup=fip.old reboot=MANUAL\n",
                ursus_fip_kind_name(ursus_up.kind));
         if (ursus_up.kind == URSUS_FIP_KIND_VANILLA)
-            printf("URSUS_VANILLA_REPLACE_COMPLETE fip=VANILLA fip.old=URSUSBOOT next_boot=VANILLA_UBOOT\n");
+            printf("URSUS_VANILLA_REPLACE_COMPLETE fip=VANILLA fip.old=URSUSBOOT env=RESET next_boot=VANILLA_UBOOT\n");
         return 1;
 
     case URSUS_UP_UBI_ROLLBACK:

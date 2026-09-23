@@ -11,6 +11,23 @@ Evidence labels used here:
 
 **QA PASS and BUILD PASS are not HW PASS.**
 
+## 0.1.0-alpha5-t65 (branch `test63`)
+
+Fix from the first t64 hardware run (XG-040G-MD): STOCK -> UrsusBoot -> UBI migration
+and the Vanilla replacement all verified, the fast BL2 booted Vanilla
+`U-Boot 2026.07-OpenWrt-r0-3d1645e` from UBI `fip`, but Vanilla loaded the
+environment UrsusBoot had saved in `ubootenv`/`ubootenv2` during the migration
+(`bootcmd=ursusdispatch`, no `bootmenu_N`) and stopped at `AN7581>` with
+"bootmenu option 0 was not found". `env default -a -f; saveenv; saveenv; reset`
+on the router booted OpenWrt (UBI `fip` = pinned Vanilla FIP, MAC from `ri`).
+
+- After the promoted Vanilla `fip` verifies, both environment volumes are
+  invalidated the way OpenWrt's own `reset_factory` does after a FIP write
+  (0x800 zero bytes, read back): `URSUS_VANILLA_ENV_RESET_OK`. Vanilla then boots
+  its default environment and first-boot setup. If the reset fails, the
+  transaction rolls back to UrsusBoot (`URSUS_UPDATE_POSTCOMMIT_ENV_FAIL`).
+- `URSUS_VANILLA_REPLACE_COMPLETE ... env=RESET ...`. HW PENDING.
+
 ## 0.1.0-alpha5-t64 (TEST64, branch `test63`)
 
 Version string shortened to `0.1.0-alpha5-t64` (was `0.1.0-alpha5-UBIUX1-TEST64`); `UBIUX1` no longer distinguished anything. The release build applies OpenWrt PR 24025 (Fudan FM25G02B) before building the Vanilla U-Boot.

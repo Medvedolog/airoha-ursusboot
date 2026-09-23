@@ -145,6 +145,8 @@ def transforms(root: Path, trees: Path) -> None:
         ui = (trees / b / "include/ursusweb_ui.inc").read_text(encoding="latin-1")
         assert "ursus_vanilla_fip_validate" in upd and "URSUS_BOARD_OTHER_COMPATIBLE" in upd, b
         assert "ursus_ubi_installed_bl2_matches_pin" in upd, b
+        # t65: Vanilla must not inherit UrsusBoot's saved environment (HW t64: stopped at bootmenu).
+        assert "ursus_vanilla_reset_env()" in upd and "URSUS_VANILLA_ENV_RESET_OK" in upd, b
         assert "/api/replace-with-vanilla " in web and "REPLACE-URSUSBOOT-WITH-VANILLA" in web, b
         assert "vanilla-fip-begin" in ui and "replaceVanilla" in ui, b
     print("MD/MF source transforms + board policy + Vanilla replacement: PASS")
