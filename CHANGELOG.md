@@ -11,7 +11,9 @@ Evidence labels used here:
 
 **QA PASS and BUILD PASS are not HW PASS.**
 
-## 0.1.0-alpha5-UBIUX1-TEST64 (branch `test63`)
+## 0.1.0-alpha5-t64 (TEST64, branch `test63`)
+
+Version string shortened to `0.1.0-alpha5-t64` (was `0.1.0-alpha5-UBIUX1-TEST64`); `UBIUX1` no longer distinguished anything. The release build applies OpenWrt PR 24025 (Fudan FM25G02B) before building the Vanilla U-Boot.
 
 TEST64 adds the last leg of the STOCK -> OpenWrt path: replacing UrsusBoot by the Vanilla OpenWrt U-Boot, as a separate, explicitly named one-way operation. Evidence: **SOURCE**, **QA PASS** (standalone QA), local MD/MF builds with stand-in Vanilla FIPs. **HW PENDING.**
 

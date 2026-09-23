@@ -122,7 +122,7 @@ For each board (MD and MF), from Nokia stock:
 - readback of the BL2 area after BL2-LAST equals the 128 KiB candidate (same digest);
 - the device then boots OpenWrt from UBI without Recovery; with UART, the BL2 log shows the fast scan path;
 - time from power-on to OpenWrt noticeably shorter than with the previous preloader;
-- WebFailsafe/`/api/status` reports `0.1.0-alpha5-UBIUX1-TEST63`;
+- WebFailsafe/`/api/status` reports `0.1.0-alpha5-t64`;
 - MF: `URSUS_MAC_SOURCE=RI` on boot after migration (first HW check of the MF MAC path).
 
 ### TEST64 Vanilla replacement acceptance
