@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Release build of one board: fast-scan BL2 -> preloader FIP -> UrsusBoot pinned
-# to that preloader -> packaging -> provenance. Used by CI here and by
+# Release build of one board: fast-scan BL2 -> preloader FIP -> Vanilla OpenWrt
+# U-Boot FIP -> UrsusBoot pinned to that preloader and that Vanilla FIP ->
+# packaging -> provenance. Used by CI here and by
 # airoha-router-ursusflasher (which checks out this repository at an exact SHA).
 #
 #   OPENWRT_DIR=/path/to/openwrt ./scripts/ci/build-release.sh <board>
@@ -62,12 +63,39 @@ python3 "$ROOT/scripts/atf/wrap_bl2_preloader.py" --bl2 "$OUTBL2/${SOC}-bl2.bin"
 ATF_SRC="$(sed -n 's/^[[:space:]]*SOURCE_VERSION:=//p' package/boot/arm-trusted-firmware-airoha/Makefile | head -n1)"
 git checkout -- package/boot/arm-trusted-firmware-airoha/Makefile
 
+# --- Vanilla OpenWrt U-Boot FIP (the only one this UrsusBoot may install) ----
+# uboot-airoha builds PKG_NAME=u-boot in build_dir/<target>/u-boot-<variant>/
+# and installs its LZMA NT_FW as staging_dir/<target>/image/<variant>-u-boot.lzma.
+UVAR="$(prof uboot_variant)"
+[ -n "$UVAR" ] || { echo "board $BOARD: profile has no uboot_variant" >&2; exit 3; }
+make -j"$(nproc)" package/boot/uboot-airoha/compile V=s 2>&1 | tee "$OUTBL2/uboot.log" \
+    || make -j1 package/boot/uboot-airoha/compile V=s 2>&1 | tee -a "$OUTBL2/uboot.log"
+VLZMA="staging_dir/target-aarch64_cortex-a53_musl/image/${UVAR}-u-boot.lzma"
+[ -s "$VLZMA" ] || { echo "Vanilla U-Boot NT_FW not staged: $VLZMA" >&2; exit 4; }
+VBIN="$(find build_dir -type f -path "*/u-boot-${UVAR}/u-boot-*/u-boot.bin" -print -quit)"
+[ -s "$VBIN" ] || { echo "Vanilla U-Boot u-boot.bin not found for $UVAR" >&2; exit 4; }
+grep -Fq FM25G02B "$(dirname "$VBIN")/drivers/mtd/nand/spi/fmsh.c"
+python3 -c "import lzma,sys; assert lzma.decompress(open(sys.argv[1],'rb').read(), format=lzma.FORMAT_ALONE) == open(sys.argv[2],'rb').read(), 'staged u-boot.lzma is not this u-boot.bin'" "$VLZMA" "$VBIN"
+cp "$VLZMA" "$OUTBL2/vanilla-u-boot.lzma"
+cp "$VBIN" "$OUTBL2/vanilla-u-boot.bin"
+POLICY_H="$ROOT/boards/$(prof board_policy_header)"
+OTHER="$(sed -n 's/^#define URSUS_BOARD_OTHER_COMPATIBLE[[:space:]]*"\(.*\)"/\1/p' "$POLICY_H")"
+[ -n "$OTHER" ] || { echo "board $BOARD: $POLICY_H has no URSUS_BOARD_OTHER_COMPATIBLE" >&2; exit 3; }
+python3 "$ROOT/scripts/vanilla/make_vanilla_fip.py" --donor "$ROOT/$(prof reference_fip)" \
+    --nt-fw "$OUTBL2/vanilla-u-boot.lzma" --output "$OUTBL2/vanilla-u-boot.fip" \
+    --board "$(prof compatible)" --other-board "$OTHER" \
+    --require-marker "U-Boot 2026.07" --require-marker FM25G02B --forbid-marker UrsusBoot- \
+    | tee "$OUTBL2/vanilla-fip.txt"
+
 # --- UrsusBoot pinned to exactly this preloader ------------------------------
 cd "$ROOT"
-OPENWRT_SDK="$OPENWRT_DIR" URSUS_UBI_PRELOADER="$OUTBL2/preloader.fip" ./build.sh "$BOARD"
+OPENWRT_SDK="$OPENWRT_DIR" URSUS_UBI_PRELOADER="$OUTBL2/preloader.fip" \
+    URSUS_VANILLA_FIP="$OUTBL2/vanilla-u-boot.fip" ./build.sh "$BOARD"
 OUT="$ROOT/dist/$BOARD"
 cp "$OUTBL2/preloader.fip" "$OUT/ursusboot-ubi-preloader.fip"
 cp "$OUTBL2/${SOC}-bl2.bin" "$OUT/${SOC}-bl2.bin"
+cp "$OUTBL2/vanilla-u-boot.bin" "$OUT/vanilla-u-boot.bin"
 python3 "$ROOT/scripts/ci/write_provenance.py" --out "$OUT" --board "$BOARD" --openwrt-ref "$WANT_REF" \
-    --atf-source "$ATF_SRC" --atf-patch "$PATCH" --atf-upstream "$(cfg atf_patch_upstream)"
+    --atf-source "$ATF_SRC" --atf-patch "$PATCH" --atf-upstream "$(cfg atf_patch_upstream)" \
+    --uboot-variant "$UVAR"
 echo "URSUSBOOT_RELEASE=OK board=$BOARD"

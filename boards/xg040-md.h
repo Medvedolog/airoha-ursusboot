@@ -6,6 +6,7 @@
 #define URSUS_BOARD_PROFILE_MARKER         "URSUS_BOARD_PROFILE=xg040-md"
 #define URSUS_BOARD_MODEL                  "Nokia XG-040G-MD"
 #define URSUS_BOARD_COMPATIBLE             "nokia,xg-040g-md"
+#define URSUS_BOARD_OTHER_COMPATIBLE       "nokia,xg-040g-mf"
 
 #define URSUS_BOARD_ALLOW_UBI_BOOT          1
 #define URSUS_BOARD_ALLOW_FACTORY_FIT       1

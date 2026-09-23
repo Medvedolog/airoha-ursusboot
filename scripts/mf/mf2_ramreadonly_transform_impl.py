@@ -106,7 +106,8 @@ def transform(root: Path) -> None:
     u = u.replace("XG040GMC2P5G", "MF2_STOCK_FIP_VALIDATION_DISABLED")
     u = u.replace("AN7581", "AN7583")
     u = u.replace("an7581", "an7583")
-    start_anchor = '''int ursus_fip_update_start(ulong addr, size_t len)\n{\n    bool is_ubi = false;\n    int ret;\n    const u8 *buf;\n\n'''
+    # TEST64: UrsusBoot self-update and the Vanilla replacement share one start path.
+    start_anchor = '''static int ursus_fip_update_start_kind(ulong addr, size_t len, enum ursus_fip_kind kind)\n{\n    bool is_ubi = false;\n    int ret;\n    const u8 *buf;\n\n'''
     start_gate = start_anchor + '''    printf("URSUS_MF2_READONLY_REJECT operation=FIP_UPDATE\\n");\n    return -EROFS;\n\n'''
     u = replace_exact(u, start_anchor, start_gate, "FIP update gate")
     write(update, u)

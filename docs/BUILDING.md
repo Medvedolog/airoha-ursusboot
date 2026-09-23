@@ -69,6 +69,10 @@ It builds the host tools and toolchain, applies `scripts/atf/atf-airoha-083c14f-
 
 The fast scan exists only in BL2 (ATF). UrsusBoot's own `ubi part` still performs a full UBI scan (`CONFIG_MTD_UBI_FASTMAP` is off).
 
+## Vanilla FIP pin (TEST64)
+
+`URSUS_VANILLA_FIP=<fip> ./build.sh <board>` pins the one Vanilla OpenWrt U-Boot FIP this UrsusBoot may install (`scripts/pin_vanilla_fip.py` rewrites `ursus_vanilla_fip_sha256` in `cmd/ursusupdate.c`; the source ships all-zero = none pinned = replacement refused). The release build creates that FIP itself: `uboot-airoha` for the profile's `uboot_variant`, then `scripts/vanilla/make_vanilla_fip.py` with the profile's donor FIP, replacing only NT_FW (BL33). The FIP is shipped as `dist/<board>/vanilla-u-boot.fip`.
+
 ## Persistent build
 
 For XG-040G-MD:

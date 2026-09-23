@@ -1210,6 +1210,36 @@ static int ursus_verify_bl2_candidate(void)
     return 0;
 }
 
+/* The fast-scan BL2 currently installed at NAND 0..128 KiB must be exactly the
+ * pinned BL2 image this runtime migrates with. The Vanilla FIP replacement uses
+ * this so a Vanilla BL31/U-Boot is committed only on top of the proven BL2. */
+int ursus_ubi_installed_bl2_matches_pin(void)
+{
+    struct mtd_info *nand = ursus_find_master_nand();
+    u8 digest[SHA256_SUM_LEN];
+    u8 *buf;
+    int ret;
+
+    if (!nand)
+        return -ENODEV;
+    buf = malloc(URSUS_UBI_BL2_SIZE);
+    if (!buf)
+        return -ENOMEM;
+    ret = ursus_read_exact(nand, 0, URSUS_UBI_BL2_SIZE, buf);
+    if (!ret) {
+        sha256_csum_wd(buf, URSUS_UBI_BL2_SIZE, digest, CHUNKSZ_SHA256);
+        ret = memcmp(digest, ursus_bl2_image_sha256, sizeof(digest)) ? -EBADMSG : 0;
+    }
+    free(buf);
+    printf("URSUS_UBI_INSTALLED_BL2 %s actual=", ret ? "MISMATCH" : "OK");
+    if (ret == 0 || ret == -EBADMSG)
+        ursus_print_sha256(digest);
+    printf(" pinned=");
+    ursus_print_sha256(ursus_bl2_image_sha256);
+    printf("\n");
+    return ret;
+}
+
 static int ursus_mig_fail(int ret)
 {
     enum ursus_migration_stage failed = ursus_mig.stage;

@@ -70,5 +70,6 @@ int ursus_ubi_validate_preloader(ulong addr, size_t len);
 int ursus_ubi_prepare_bl2_candidate(ulong preloader_addr, size_t preloader_len);
 bool ursus_ubi_bl2_candidate_valid(void);
 ulong ursus_ubi_bl2_candidate_addr(void);
+int ursus_ubi_installed_bl2_matches_pin(void);
 
 #endif

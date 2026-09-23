@@ -151,6 +151,7 @@ enum ursus_upload_kind {
     URSUS_UPLOAD_INITRAMFS,
     URSUS_UPLOAD_UBI_PRELOADER,
     URSUS_UPLOAD_URSUS_FIP,
+    URSUS_UPLOAD_VANILLA_FIP,   /* shares the FIP stage buffer with URSUS_FIP */
 };
 struct ursus_upload_session {
     enum ursus_upload_kind kind;
@@ -166,8 +167,10 @@ static struct ursus_upload_session ursus_fw_upload;
 static struct ursus_upload_session ursus_init_upload;
 static struct ursus_upload_session ursus_preloader_upload;
 static struct ursus_upload_session ursus_fip_upload;
+static struct ursus_upload_session ursus_vanilla_upload;
 static bool ursus_preloader_valid;
 static bool ursus_fip_upload_valid;
+static bool ursus_vanilla_upload_valid;
 static char ursus_current_layout[32] = "UNKNOWN";
 static bool ursus_boot_fip;
 static bool ursus_stock_fip;
@@ -417,7 +420,20 @@ static struct ursus_upload_session *ursus_upload_session(enum ursus_upload_kind 
         return &ursus_preloader_upload;
     if (kind == URSUS_UPLOAD_URSUS_FIP)
         return &ursus_fip_upload;
+    if (kind == URSUS_UPLOAD_VANILLA_FIP)
+        return &ursus_vanilla_upload;
     return NULL;
+}
+
+static const char *ursus_upload_kind_name(enum ursus_upload_kind kind)
+{
+    switch (kind) {
+    case URSUS_UPLOAD_FIRMWARE: return "firmware";
+    case URSUS_UPLOAD_INITRAMFS: return "initramfs";
+    case URSUS_UPLOAD_UBI_PRELOADER: return "ubi-preloader";
+    case URSUS_UPLOAD_VANILLA_FIP: return "vanilla-fip";
+    default: return "ursus-fip";
+    }
 }
 
 static u32 ursus_be32(const u8 *p)
@@ -1633,9 +1649,11 @@ static void ursus_build_status(void)
              "\"ubi_preloader_upload_received\":%u,\"ubi_preloader_upload_total\":%u,"
              "\"ursus_fip_valid\":%s,\"ursus_fip_filename\":\"%s\",\"ursus_fip_generation\":\"%s\"," 
              "\"ursus_fip_upload_received\":%u,\"ursus_fip_upload_total\":%u,"
+             "\"vanilla_fip_pinned\":%s,\"vanilla_fip_valid\":%s,\"vanilla_fip_filename\":\"%s\",\"vanilla_fip_generation\":\"%s\","
+             "\"vanilla_fip_upload_received\":%u,\"vanilla_fip_upload_total\":%u,"
              "\"bootloader_update_active\":%s,\"bootloader_update_complete\":%s,\"bootloader_update_failed\":%s,"
              "\"bootloader_update_stage\":\"%s\",\"bootloader_update_percent\":%u,"
-             "\"bootloader_update_detail\":\"%s\",\"bootloader_update_error\":%d,\"bootloader_update_layout\":\"%s\"," 
+             "\"bootloader_update_detail\":\"%s\",\"bootloader_update_error\":%d,\"bootloader_update_layout\":\"%s\",\"bootloader_update_kind\":\"%s\"," 
              "\"operation\":\"%s\",\"operation_active\":%s,\"operation_complete\":%s,\"operation_failed\":%s,"
              "\"operation_stage\":\"%s\",\"operation_percent\":%u,\"operation_detail\":\"%s\",\"operation_error\":%d,"
              "\"operation_failed_at_stage\":\"%s\",\"operation_last_success_stage\":\"%s\","
@@ -1682,9 +1700,12 @@ static void ursus_build_status(void)
              (unsigned int)ursus_preloader_upload.received, (unsigned int)ursus_preloader_upload.total,
              ursus_fip_upload_valid ? "true" : "false", ursus_fip_upload.filename, ursus_fip_upload.generation,
              (unsigned int)ursus_fip_upload.received, (unsigned int)ursus_fip_upload.total,
+             ursus_vanilla_fip_pinned() ? "true" : "false", ursus_vanilla_upload_valid ? "true" : "false",
+             ursus_vanilla_upload.filename, ursus_vanilla_upload.generation,
+             (unsigned int)ursus_vanilla_upload.received, (unsigned int)ursus_vanilla_upload.total,
              ursus_fip_update_active() ? "true" : "false", ursus_fip_update_complete() ? "true" : "false",
              ursus_fip_update_failed() ? "true" : "false", ursus_fip_update_stage(), ursus_fip_update_percent(),
-             ursus_fip_update_detail(), ursus_fip_update_error(), ursus_fip_update_layout(),
+             ursus_fip_update_detail(), ursus_fip_update_error(), ursus_fip_update_layout(), ursus_fip_update_kind(),
              operation, op_active ? "true" : "false", op_complete ? "true" : "false", op_failed ? "true" : "false",
              op_stage, op_percent, op_detail, op_error,
              op_failed_stage, op_last_success, op_error_code, op_transaction);
@@ -1943,13 +1964,15 @@ static err_t ursus_begin_upload(struct tcp_pcb *pcb, struct ursus_conn *c,
     } else if (kind == URSUS_UPLOAD_UBI_PRELOADER) {
         ursus_preloader_valid = false;
     } else {
+        /* UrsusBoot and Vanilla FIP uploads share one RAM stage: a new upload
+         * of either kind invalidates both. */
         ursus_fip_upload_valid = false;
+        ursus_vanilla_upload_valid = false;
+        memset(kind == URSUS_UPLOAD_VANILLA_FIP ? &ursus_fip_upload : &ursus_vanilla_upload, 0,
+               sizeof(struct ursus_upload_session));
     }
     ursus_logf("UPLOAD BEGIN: kind=%s generation=%s filename=%s declared=%u received=0\n",
-               kind == URSUS_UPLOAD_FIRMWARE ? "firmware" :
-               kind == URSUS_UPLOAD_INITRAMFS ? "initramfs" :
-               kind == URSUS_UPLOAD_UBI_PRELOADER ? "ubi-preloader" : "ursus-fip",
-               u->generation, u->filename, (unsigned int)u->total);
+               ursus_upload_kind_name(kind), u->generation, u->filename, (unsigned int)u->total);
     snprintf(ursus_reply_body, sizeof(ursus_reply_body),
              "{\"result\":\"UPLOAD_READY\",\"reason_class\":\"%s\",\"generation\":\"%s\",\"filename\":\"%s\",\"declared_size\":%u,\"received\":0}\n",
              URSUS_RC_OK, u->generation, u->filename, (unsigned int)u->total);
@@ -2140,6 +2163,15 @@ static err_t ursus_route_ready(struct tcp_pcb *pcb, struct ursus_conn *c)
         ursus_preloader_valid = false;
         return ursus_http_start_response(pcb, c, 200, "application/json", "{\"result\":\"DISCARDED\"}\n");
     }
+    if (URSUS_REQ_MATCH(c->reqhdr, "POST /api/vanilla-fip-discard ")) {
+        ursus_logf("UPLOAD DISCARD: kind=vanilla-fip generation=%s filename=%s declared=%u received=%u class=%s\n",
+                   ursus_vanilla_upload.generation, ursus_vanilla_upload.filename,
+                   (unsigned int)ursus_vanilla_upload.total, (unsigned int)ursus_vanilla_upload.received,
+                   URSUS_RC_UPLOAD_INCOMPLETE);
+        memset(&ursus_vanilla_upload, 0, sizeof(ursus_vanilla_upload));
+        ursus_vanilla_upload_valid = false;
+        return ursus_http_start_response(pcb, c, 200, "application/json", "{\"result\":\"DISCARDED\"}\n");
+    }
     if (URSUS_REQ_MATCH(c->reqhdr, "POST /api/ursus-fip-discard ")) {
         ursus_logf("UPLOAD DISCARD: kind=ursus-fip generation=%s filename=%s declared=%u received=%u class=%s\n",
                    ursus_fip_upload.generation, ursus_fip_upload.filename,
@@ -2157,6 +2189,8 @@ static err_t ursus_route_ready(struct tcp_pcb *pcb, struct ursus_conn *c)
         return ursus_begin_upload(pcb, c, URSUS_UPLOAD_UBI_PRELOADER);
     if (URSUS_REQ_MATCH(c->reqhdr, "POST /api/ursus-fip-begin "))
         return ursus_begin_upload(pcb, c, URSUS_UPLOAD_URSUS_FIP);
+    if (URSUS_REQ_MATCH(c->reqhdr, "POST /api/vanilla-fip-begin "))
+        return ursus_begin_upload(pcb, c, URSUS_UPLOAD_VANILLA_FIP);
     if (URSUS_REQ_MATCH(c->reqhdr, "POST /api/firmware-chunk "))
         return ursus_prepare_chunk(pcb, c, URSUS_UPLOAD_FIRMWARE);
     if (URSUS_REQ_MATCH(c->reqhdr, "POST /api/initramfs-chunk "))
@@ -2165,6 +2199,8 @@ static err_t ursus_route_ready(struct tcp_pcb *pcb, struct ursus_conn *c)
         return ursus_prepare_chunk(pcb, c, URSUS_UPLOAD_UBI_PRELOADER);
     if (URSUS_REQ_MATCH(c->reqhdr, "POST /api/ursus-fip-chunk "))
         return ursus_prepare_chunk(pcb, c, URSUS_UPLOAD_URSUS_FIP);
+    if (URSUS_REQ_MATCH(c->reqhdr, "POST /api/vanilla-fip-chunk "))
+        return ursus_prepare_chunk(pcb, c, URSUS_UPLOAD_VANILLA_FIP);
     if (URSUS_REQ_MATCH(c->reqhdr, "POST /api/expert/boot-once ")) {
         if (!ursus_expert_img.bootable_fit)
             return ursus_http_start_response(pcb, c, 409, "application/json",
@@ -2292,6 +2328,31 @@ static err_t ursus_route_ready(struct tcp_pcb *pcb, struct ursus_conn *c)
         return ursus_http_start_response(pcb, c, 200, "application/json",
             "{\"result\":\"URSUSBOOT_UPDATE_STARTED\",\"reboot\":\"MANUAL\"}\n");
     }
+    if (URSUS_REQ_MATCH(c->reqhdr, "POST /api/replace-with-vanilla ")) {
+        char confirm[40];
+        int uret;
+        if (!ursus_parse_header_value(c->reqhdr, "X-Ursus-Confirm", confirm, sizeof(confirm)) ||
+            strcmp(confirm, "REPLACE-URSUSBOOT-WITH-VANILLA"))
+            return ursus_http_start_response(pcb, c, 409, "application/json",
+                "{\"result\":\"REJECTED\",\"reason_class\":\"OPERATION_LOCKED\",\"reason\":\"confirmation required\"}\n");
+        if (!ursus_vanilla_upload_valid || ursus_vanilla_upload.received != ursus_vanilla_upload.total ||
+            !ursus_vanilla_upload.total)
+            return ursus_http_start_response(pcb, c, 409, "application/json",
+                "{\"result\":\"REJECTED\",\"reason_class\":\"OPERATION_LOCKED\",\"reason\":\"validated pinned Vanilla FIP required\"}\n");
+        if (ursus_ubi_migration_active() || ursus_fip_update_active())
+            return ursus_http_start_response(pcb, c, 409, "application/json",
+                "{\"result\":\"REJECTED\",\"reason_class\":\"OPERATION_LOCKED\",\"reason\":\"another flash operation is active\"}\n");
+        uret = ursus_vanilla_fip_update_start(ursus_vanilla_upload.addr, ursus_vanilla_upload.total);
+        if (uret)
+            return ursus_http_start_response(pcb, c, 409, "application/json",
+                "{\"result\":\"REJECTED\",\"reason_class\":\"OPERATION_LOCKED\",\"reason\":\"Vanilla replacement preflight failed\"}\n");
+        ursus_pending_bootloader_update = true;
+        ursus_logf("VANILLA REPLACE: START layout=%s file=%s bytes=%u\n",
+                   ursus_fip_update_layout(), ursus_vanilla_upload.filename,
+                   (unsigned int)ursus_vanilla_upload.total);
+        return ursus_http_start_response(pcb, c, 200, "application/json",
+            "{\"result\":\"VANILLA_REPLACE_STARTED\",\"reboot\":\"MANUAL\"}\n");
+    }
     if (URSUS_REQ_MATCH(c->reqhdr, "POST /api/reboot ")) {
         char confirm[32];
         if ((!ursus_ubi_update_complete() && !ursus_ubi_migration_complete() && !ursus_fip_update_complete()) ||
@@ -2365,9 +2426,7 @@ static err_t ursus_feed_bytes(struct tcp_pcb *pcb, struct ursus_conn *c, const u
             if (done == u->total) {
                 u->active = false;
                 ursus_logf("UPLOAD COMPLETE: kind=%s generation=%s filename=%s declared=%u received=%u\n",
-                           c->upload_kind == URSUS_UPLOAD_FIRMWARE ? "firmware" :
-                           c->upload_kind == URSUS_UPLOAD_INITRAMFS ? "initramfs" :
-                           c->upload_kind == URSUS_UPLOAD_UBI_PRELOADER ? "ubi-preloader" : "ursus-fip",
+                           ursus_upload_kind_name(c->upload_kind),
                            u->generation, u->filename, (unsigned int)u->total, (unsigned int)u->received);
                 if (c->upload_kind == URSUS_UPLOAD_FIRMWARE) {
                     vret = ursus_validate_staged(u->addr, u->total, true);
@@ -2390,6 +2449,25 @@ static err_t ursus_feed_bytes(struct tcp_pcb *pcb, struct ursus_conn *c, const u
                              vret ? URSUS_RC_BAD_CONTAINER : URSUS_RC_OK,
                              vret ? "UBI preloader or full 128 KiB BL2 candidate validation failed" :
                                     "UBI preloader and full 128 KiB BL2 candidate validated");
+                } else if (c->upload_kind == URSUS_UPLOAD_VANILLA_FIP) {
+                    bool stock_limit = strcmp(ursus_current_layout, "OPENWRT_UBI") != 0;
+                    vret = ursus_vanilla_fip_validate(u->addr, u->total, stock_limit);
+                    if (!vret)
+                        vret = ursus_ubi_installed_bl2_matches_pin() ? -ENOEXEC : 0;
+                    ursus_vanilla_upload_valid = !vret;
+                    snprintf(ursus_reply_body, sizeof(ursus_reply_body),
+                             "{\"result\":\"%s\",\"complete\":true,\"generation\":\"%s\","
+                             "\"filename\":\"%s\",\"declared_size\":%u,\"received\":%u,"
+                             "\"layout\":\"%s\",\"vanilla_fip_pinned\":%s,\"reason_class\":\"%s\",\"reason\":\"%s\"}\n",
+                             vret ? "REJECTED" : "VALID", u->generation, u->filename,
+                             (unsigned int)u->total, (unsigned int)u->received,
+                             stock_limit ? "STOCK" : "UBI", ursus_vanilla_fip_pinned() ? "true" : "false",
+                             vret ? (vret == -ENODEV ? URSUS_RC_DEVICE_MISMATCH : URSUS_RC_BAD_CONTAINER) : URSUS_RC_OK,
+                             !vret ? "Pinned Vanilla U-Boot FIP validated for this board; installed BL2 is the pinned fast BL2" :
+                             vret == -ENODEV ? "Not a Vanilla OpenWrt U-Boot FIP for this board" :
+                             vret == -ENOEXEC ? "Installed BL2 is not the pinned fast BL2 of this UrsusBoot" :
+                             stock_limit ? "Vanilla U-Boot requires the OpenWrt UBI layout" :
+                             "Not the Vanilla FIP pinned into this UrsusBoot");
                 } else {
                     bool stock_limit = strcmp(ursus_current_layout, "OPENWRT_UBI") != 0;
                     vret = ursus_fip_validate(u->addr, u->total, stock_limit);
@@ -2558,7 +2636,7 @@ static int do_ursusweb(struct cmd_tbl *cmdtp, int flag, int argc, char *const ar
     ursus_last_rx_error = 0;
     ursus_rx_error_repeats = 0;
 
-    printf("URSUS_WEB_BEGIN version=%s\nURSUS_STOCK_LAYOUT_INSTALL_ENABLED=1\nURSUS_UBI_PREFLIGHT_ENABLED=1\nURSUS_UBI_UPDATE_ENABLED=1\nURSUS_UBI_MIGRATION_ENABLED=1\nURSUS_FIP_SELFUPDATE_ENABLED=1\nURSUS_FIP_SELFUPDATE_INPUTS=web,tftp,uart,wget\nURSUS_EXPERT_INITRAMFS_SEPARATE_UPLOAD=1\nURSUS_UPLOAD_GENERATION_ENABLED=1\n", URSUS_VERSION);
+    printf("URSUS_WEB_BEGIN version=%s\nURSUS_STOCK_LAYOUT_INSTALL_ENABLED=1\nURSUS_UBI_PREFLIGHT_ENABLED=1\nURSUS_UBI_UPDATE_ENABLED=1\nURSUS_UBI_MIGRATION_ENABLED=1\nURSUS_FIP_SELFUPDATE_ENABLED=1\nURSUS_FIP_SELFUPDATE_INPUTS=web,tftp,uart,wget\nURSUS_VANILLA_REPLACE_ENABLED=1\nURSUS_EXPERT_INITRAMFS_SEPARATE_UPLOAD=1\nURSUS_UPLOAD_GENERATION_ENABLED=1\n", URSUS_VERSION);
     env_set("ipaddr", "192.168.1.1");
     env_set("netmask", "255.255.255.0");
     env_set("serverip", "192.168.1.254");
@@ -2568,8 +2646,10 @@ static int do_ursusweb(struct cmd_tbl *cmdtp, int flag, int argc, char *const ar
     memset(&ursus_init_upload, 0, sizeof(ursus_init_upload));
     memset(&ursus_preloader_upload, 0, sizeof(ursus_preloader_upload));
     memset(&ursus_fip_upload, 0, sizeof(ursus_fip_upload));
+    memset(&ursus_vanilla_upload, 0, sizeof(ursus_vanilla_upload));
     ursus_preloader_valid = false;
     ursus_fip_upload_valid = false;
+    ursus_vanilla_upload_valid = false;
     ursus_log_reset();
     if (ursus_header_parser_selftest())
         goto fail_plain;

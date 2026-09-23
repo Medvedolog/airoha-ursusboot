@@ -125,6 +125,15 @@ For each board (MD and MF), from Nokia stock:
 - WebFailsafe/`/api/status` reports `0.1.0-alpha5-UBIUX1-TEST63`;
 - MF: `URSUS_MAC_SOURCE=RI` on boot after migration (first HW check of the MF MAC path).
 
+### TEST64 Vanilla replacement acceptance
+
+After the TEST63/64 STOCK -> UBI migration, from UrsusBoot Recovery, per board:
+
+- WebFailsafe shows "Pinned Vanilla FIP: yes"; uploading `vanilla-u-boot.fip` of the same release gives VALID and the log `URSUS_UBI_INSTALLED_BL2 OK`; any other FIP (an UrsusBoot FIP, the other board's Vanilla FIP) is REJECTED;
+- the replacement logs `URSUS_UPDATE_ARMED kind=VANILLA layout=UBI`, `URSUS_UPDATE_COMMIT_OK layout=UBI kind=VANILLA backup=fip.old` and `URSUS_VANILLA_REPLACE_COMPLETE`;
+- after a power cycle the UART shows the fast BL2 and `U-Boot 2026.07` without `UrsusBoot`, and OpenWrt boots from UBI;
+- in OpenWrt the UBI volume `fip` hashes to `vanilla_fip_sha256` of PROVENANCE.json (read exactly the FIP length) and `fip.old` still holds the UrsusBoot FIP.
+
 ## Reporting a test
 
 A useful hardware report includes:

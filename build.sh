@@ -12,6 +12,9 @@
 #   URSUS_UBI_PRELOADER  preloader FIP UrsusBoot must accept for STOCK->UBI
 #                        (e.g. a fast-scan BL2 wrapped by scripts/atf/wrap_bl2_preloader.py).
 #                        Without it the HW-proven preloader digests stay compiled in.
+#   URSUS_VANILLA_FIP    the one Vanilla OpenWrt U-Boot FIP this UrsusBoot may install
+#                        (scripts/vanilla/make_vanilla_fip.py). Without it no Vanilla
+#                        FIP is pinned and the Vanilla replacement is refused.
 #   URSUS_FIP_DONOR      override the profile's donor/reference FIP
 #                        (URSUS_FIP_TEMPLATE / URSUS_FIP are compatibility aliases).
 #   JOBS                 parallel make jobs.
@@ -61,6 +64,10 @@ if [ -n "${URSUS_UBI_PRELOADER:-}" ]; then
     [ -f "$URSUS_UBI_PRELOADER" ] || { echo "URSUS_UBI_PRELOADER not found: $URSUS_UBI_PRELOADER" >&2; exit 3; }
     [ -n "$PIN_BASE" ] || { echo "board $BOARD: profile has no preloader_pin_base" >&2; exit 3; }
     URSUS_UBI_PRELOADER="$(cd "$(dirname "$URSUS_UBI_PRELOADER")" && pwd)/$(basename "$URSUS_UBI_PRELOADER")"
+fi
+if [ -n "${URSUS_VANILLA_FIP:-}" ]; then
+    [ -f "$URSUS_VANILLA_FIP" ] || { echo "URSUS_VANILLA_FIP not found: $URSUS_VANILLA_FIP" >&2; exit 3; }
+    URSUS_VANILLA_FIP="$(cd "$(dirname "$URSUS_VANILLA_FIP")" && pwd)/$(basename "$URSUS_VANILLA_FIP")"
 fi
 grep -Fq "#define URSUS_VERSION \"$VERSION\"" "$ROOT/src/u-boot/include/ursus_version.h" || {
     echo "VERSION ($VERSION) and src/u-boot/include/ursus_version.h disagree" >&2; exit 3; }
@@ -143,6 +150,9 @@ if [ -n "${URSUS_UBI_PRELOADER:-}" ]; then
     python3 "$ROOT/scripts/pin_ubi_preloader.py" --tree "$TREE" --preloader "$URSUS_UBI_PRELOADER" \
         --from "$PIN_BASE" | tee "$WORK/ubi-preloader-pin.txt"
 fi
+if [ -n "${URSUS_VANILLA_FIP:-}" ]; then
+    python3 "$ROOT/scripts/pin_vanilla_fip.py" --tree "$TREE" --fip "$URSUS_VANILLA_FIP" | tee "$WORK/vanilla-fip-pin.txt"
+fi
 
 # --- configuration ----------------------------------------------------------
 mapfile -t FRAGMENTS < <(python3 "$RESOLVE" --registry "$REGISTRY" --profile "$BOARD" --role "$ROLE" --config-dir "$ROOT/config")
@@ -170,10 +180,19 @@ mkdir -p "$OUT"
 cp "$TREE/u-boot.bin" "$OUT/u-boot.bin"
 cp "$TREE/.config" "$OUT/u-boot.config"
 
-python3 - "$OUT/u-boot.bin" "$VERSION" "$PROFILE_JSON" "${URSUS_UBI_PRELOADER:-}" "$PIN_BASE" <<'PY'
+python3 - "$OUT/u-boot.bin" "$VERSION" "$PROFILE_JSON" "${URSUS_UBI_PRELOADER:-}" "$PIN_BASE" "${URSUS_VANILLA_FIP:-}" <<'PY'
 import hashlib, json, sys
 raw = open(sys.argv[1], "rb").read()
 version, profile, preloader, base = sys.argv[2], json.loads(sys.argv[3]), sys.argv[4], sys.argv[5]
+vanilla = sys.argv[6]
+if vanilla:
+    vd = hashlib.sha256(open(vanilla, "rb").read()).hexdigest()
+    # The compiled-in byte array is what ursus_vanilla_fip_validate() memcmp()s against.
+    if bytes.fromhex(vd) not in raw:
+        raise SystemExit(f"Vanilla FIP digest {vd} is not compiled into u-boot.bin")
+    print(f"VANILLA_FIP_ACCEPTS={vd}")
+if b"REPLACE-URSUSBOOT-WITH-VANILLA" not in raw:
+    raise SystemExit("Vanilla replacement backend missing from u-boot.bin")
 must = [version] + profile.get("binary_require", [])
 for m in must:
     if m.encode() not in raw:
@@ -310,6 +329,15 @@ esac
     else
         echo "UBI_PRELOADER=HW_PROVEN_DEFAULT"
     fi
+    if [ -n "${URSUS_VANILLA_FIP:-}" ]; then
+        grep '^VANILLA_' "$WORK/vanilla-fip-pin.txt"
+    else
+        echo "VANILLA_FIP=NOT_PINNED"
+    fi
 } > "$OUT/BUILD-INFO.txt"
+if [ -n "${URSUS_VANILLA_FIP:-}" ]; then
+    cp "$URSUS_VANILLA_FIP" "$OUT/vanilla-u-boot.fip"
+    sum_files+=("$OUT/vanilla-u-boot.fip")
+fi
 sha256sum "${sum_files[@]}" | tee "$OUT/SHA256SUMS"
 echo "URSUSBOOT_BUILD=OK board=$BOARD role=$ROLE version=$VERSION out=dist/$BOARD"

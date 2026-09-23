@@ -3,6 +3,14 @@
  *
  * Transport-independent by design. TFTP, wget, X/YMODEM and WebFailsafe only
  * place a candidate FIP in RAM. This module validates and commits it.
+ *
+ * The same UBI transaction (fip.new -> readback -> atomic fip/fip.old swap ->
+ * verify -> rollback) also performs the one-way replacement of UrsusBoot by
+ * the pinned Vanilla OpenWrt U-Boot FIP. That is a separate, explicitly
+ * requested candidate kind with its own validator: an UrsusBoot self-update
+ * never accepts a Vanilla FIP and the Vanilla path never accepts UrsusBoot.
+ * Board strings come from ursus_board_policy.h only (no literals here), so
+ * the MF identity rewrite of this file cannot alter the Vanilla checks.
  */
 
 #include <command.h>
@@ -17,6 +25,8 @@
 #include <malloc.h>
 #include <mtd.h>
 #include <u-boot/sha256.h>
+#include <ursus_board_policy.h>
+#include <ursus_ubi.h>
 #include <ursus_update.h>
 #include <ursus_version.h>
 
@@ -40,6 +50,15 @@
 #define URSUS_FIP_TOC_MIN          0x00000400UL
 #define URSUS_FIP_RAW_MAX          0x00200000UL
 #define URSUS_UPDATE_STAGE_HOLD_MS 250UL
+
+/* SHA256 of the only Vanilla FIP this runtime may install. All zero = none
+ * pinned, replacement refused. scripts/pin_vanilla_fip.py rewrites it. */
+static const u8 ursus_vanilla_fip_sha256[32] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
 
 static const u8 ursus_nt_fw_uuid[16] = {
     0xd6, 0xd0, 0xee, 0xa7, 0xfc, 0xea, 0xd5, 0x4b,
@@ -78,6 +97,7 @@ enum ursus_update_stage {
 };
 
 struct ursus_update_ctx {
+    enum ursus_fip_kind kind;
     enum ursus_update_stage stage;
     enum ursus_update_stage failed_stage;
     enum ursus_update_stage last_success_stage;
@@ -307,6 +327,49 @@ static int ursus_fip_parse(const u8 *buf, size_t len, size_t *nt_off,
 }
 
 
+/* Unpack the LZMA NT_FW (BL33) of a FIP whose TOC ends exactly at len.
+ * Shared by the UrsusBoot and Vanilla validators. Caller frees *raw. */
+static int ursus_fip_bl33_unpack(const u8 *buf, size_t len, u8 **raw_out, SizeT *raw_len)
+{
+    size_t nt_off, nt_size, declared_end;
+    const u8 *nt;
+    u64 raw64 = 0;
+    SizeT raw_cap, compressed_len;
+    u8 *raw;
+    int ret;
+    unsigned int i;
+
+    if (!len || len > URSUS_UBI_FIP_VOL_SIZE)
+        return -EFBIG;
+    ret = ursus_fip_parse(buf, len, &nt_off, &nt_size, &declared_end);
+    if (ret)
+        return ret;
+    if (declared_end != len)
+        return -EINVAL;
+    if (nt_size < 13 || nt_off + nt_size > len)
+        return -EINVAL;
+    nt = buf + nt_off;
+    for (i = 0; i < 8; i++)
+        raw64 |= (u64)nt[5 + i] << (i * 8);
+    if (raw64 < 0x10000 || raw64 > URSUS_FIP_RAW_MAX)
+        return -EFBIG;
+    raw_cap = (SizeT)raw64;
+    raw = malloc(raw_cap);
+    if (!raw)
+        return -ENOMEM;
+    compressed_len = nt_size;
+    ret = lzmaBuffToBuffDecompress(raw, &raw_cap, nt, compressed_len);
+    if (ret != SZ_OK || raw_cap != raw64) {
+        printf("URSUS_UPDATE_REJECT reason=nt-fw-lzma ret=%d expected=%llu got=%lu\n",
+               ret, (unsigned long long)raw64, (ulong)raw_cap);
+        free(raw);
+        return -EBADMSG;
+    }
+    *raw_out = raw;
+    *raw_len = raw_cap;
+    return 0;
+}
+
 static int ursus_fip_validate_current(const u8 *buf, size_t available_len, size_t *declared_end)
 {
     size_t nt_off, nt_size, end;
@@ -358,42 +421,15 @@ static int ursus_fip_validate_current(const u8 *buf, size_t available_len, size_
 static int ursus_fip_validate_buf(const u8 *buf, size_t len, bool stock_limit,
                                   u8 digest[SHA256_SUM_LEN])
 {
-    size_t nt_off, nt_size, declared_end;
-    const u8 *nt;
-    u64 raw64 = 0;
-    SizeT raw_cap, compressed_len;
+    SizeT raw_cap;
     u8 *raw;
     int ret;
-    unsigned int i;
 
-    if (!len || len > URSUS_UBI_FIP_VOL_SIZE)
-        return -EFBIG;
     if (stock_limit && len >= URSUS_STOCK_FIP_MAX)
         return -EFBIG;
-    ret = ursus_fip_parse(buf, len, &nt_off, &nt_size, &declared_end);
+    ret = ursus_fip_bl33_unpack(buf, len, &raw, &raw_cap);
     if (ret)
         return ret;
-    if (declared_end != len)
-        return -EINVAL;
-    if (nt_size < 13 || nt_off + nt_size > len)
-        return -EINVAL;
-    nt = buf + nt_off;
-    for (i = 0; i < 8; i++)
-        raw64 |= (u64)nt[5 + i] << (i * 8);
-    if (raw64 < 0x10000 || raw64 > URSUS_FIP_RAW_MAX)
-        return -EFBIG;
-    raw_cap = (SizeT)raw64;
-    raw = malloc(raw_cap);
-    if (!raw)
-        return -ENOMEM;
-    compressed_len = nt_size;
-    ret = lzmaBuffToBuffDecompress(raw, &raw_cap, nt, compressed_len);
-    if (ret != SZ_OK || raw_cap != raw64) {
-        printf("URSUS_UPDATE_REJECT reason=nt-fw-lzma ret=%d expected=%llu got=%lu\n",
-               ret, (unsigned long long)raw64, (ulong)raw_cap);
-        free(raw);
-        return -EBADMSG;
-    }
     if (!ursus_mem_has(raw, raw_cap, "U-Boot 2026.07-UrsusBoot-") ||
         !ursus_mem_has(raw, raw_cap, "nokia,xg-040g-md") ||
         !ursus_mem_has(raw, raw_cap, "airoha,an7581")) {
@@ -430,6 +466,90 @@ int ursus_fip_validate(ulong addr, size_t len, bool stock_limit)
         printf("%02x", digest[i]);
     printf(" board=nokia_xg-040g-md soc=an7581\n");
     return 0;
+}
+
+static const char *ursus_fip_kind_name(enum ursus_fip_kind kind)
+{
+    return kind == URSUS_FIP_KIND_VANILLA ? "VANILLA" : "URSUSBOOT";
+}
+
+bool ursus_vanilla_fip_pinned(void)
+{
+    unsigned int i;
+
+    for (i = 0; i < sizeof(ursus_vanilla_fip_sha256); i++)
+        if (ursus_vanilla_fip_sha256[i])
+            return true;
+    return false;
+}
+
+/* Vanilla OpenWrt U-Boot for exactly this board: this board's compatible, not
+ * the sibling's, U-Boot 2026.07 without UrsusBoot lineage, and the pinned FIP
+ * SHA256 (the decisive check; the identity checks explain a mismatch). */
+static int ursus_vanilla_fip_validate_buf(const u8 *buf, size_t len, u8 digest[SHA256_SUM_LEN])
+{
+    bool board, other, uboot, ursus;
+    SizeT raw_len;
+    u8 *raw;
+    int ret;
+
+    ret = ursus_fip_bl33_unpack(buf, len, &raw, &raw_len);
+    if (ret)
+        return ret;
+    board = ursus_mem_has(raw, raw_len, URSUS_BOARD_COMPATIBLE);
+    other = ursus_mem_has(raw, raw_len, URSUS_BOARD_OTHER_COMPATIBLE);
+    uboot = ursus_mem_has(raw, raw_len, "U-Boot 2026.07");
+    ursus = ursus_mem_has(raw, raw_len, "U-Boot 2026.07-UrsusBoot-");
+    free(raw);
+    if (!board || other || !uboot || ursus) {
+        printf("URSUS_UPDATE_REJECT reason=device-mismatch kind=VANILLA board=%u other_board=%u uboot=%u ursusboot=%u\n",
+               board, other, uboot, ursus);
+        return -ENODEV;
+    }
+    sha256_csum_wd(buf, len, digest, CHUNKSZ_SHA256);
+    if (!ursus_vanilla_fip_pinned()) {
+        printf("URSUS_UPDATE_REJECT reason=vanilla-not-pinned\n");
+        return -EPERM;
+    }
+    if (memcmp(digest, ursus_vanilla_fip_sha256, SHA256_SUM_LEN)) {
+        printf("URSUS_UPDATE_REJECT reason=vanilla-sha256-not-pinned\n");
+        return -EPERM;
+    }
+    return 0;
+}
+
+int ursus_vanilla_fip_validate(ulong addr, size_t len, bool stock_limit)
+{
+    const u8 *buf;
+    u8 digest[SHA256_SUM_LEN];
+    int ret;
+    unsigned int i;
+
+    if (stock_limit) {
+        /* Vanilla boots only from the native UBI layout with the fast BL2. */
+        printf("URSUS_UPDATE_PRECHECK_REJECT kind=VANILLA reason=requires-ubi-layout\n");
+        return -EPERM;
+    }
+    buf = map_sysmem(addr, len);
+    if (!buf)
+        return -ENOMEM;
+    ret = ursus_vanilla_fip_validate_buf(buf, len, digest);
+    unmap_sysmem(buf);
+    if (ret) {
+        printf("URSUS_UPDATE_PRECHECK_REJECT kind=VANILLA ret=%d len=%u\n", ret, (unsigned int)len);
+        return ret;
+    }
+    printf("URSUS_UPDATE_PRECHECK_OK kind=VANILLA bytes=%u sha256=", (unsigned int)len);
+    for (i = 0; i < SHA256_SUM_LEN; i++)
+        printf("%02x", digest[i]);
+    printf(" board=%s\n", URSUS_BOARD_COMPATIBLE);
+    return 0;
+}
+
+static int ursus_fip_validate_kind(ulong addr, size_t len, bool stock_limit, enum ursus_fip_kind kind)
+{
+    return kind == URSUS_FIP_KIND_VANILLA ? ursus_vanilla_fip_validate(addr, len, stock_limit) :
+                                            ursus_fip_validate(addr, len, stock_limit);
 }
 
 static int ursus_detect_ubi_layout(bool *is_ubi)
@@ -561,8 +681,11 @@ static const char *ursus_update_detail_text(enum ursus_update_stage s)
     case URSUS_UP_UBI_PROMOTE: return "Atomically rename fip to fip.old and fip.new to fip";
     case URSUS_UP_UBI_VERIFY: return "Verify promoted fip";
     case URSUS_UP_UBI_ROLLBACK: return "Rollback promoted fip to previous fip.old";
-    case URSUS_UP_COMPLETE: return "UrsusBoot update complete; reboot is operator-controlled";
-    case URSUS_UP_FAILED: return "UrsusBoot update failed";
+    case URSUS_UP_COMPLETE: return ursus_up.kind == URSUS_FIP_KIND_VANILLA ?
+        "Vanilla U-Boot is in fip (UrsusBoot kept as fip.old); reboot is operator-controlled" :
+        "UrsusBoot update complete; reboot is operator-controlled";
+    case URSUS_UP_FAILED: return ursus_up.kind == URSUS_FIP_KIND_VANILLA ?
+        "Vanilla U-Boot replacement failed" : "UrsusBoot update failed";
     default: return "Idle";
     }
 }
@@ -594,6 +717,7 @@ bool ursus_fip_update_failed(void) { return ursus_up.stage == URSUS_UP_FAILED; }
 const char *ursus_fip_update_stage(void) { return ursus_update_stage_name(ursus_up.stage); }
 const char *ursus_fip_update_detail(void) { return ursus_update_detail_text(ursus_up.stage); }
 const char *ursus_fip_update_layout(void) { return ursus_up.ubi_layout ? "UBI" : "STOCK"; }
+const char *ursus_fip_update_kind(void) { return ursus_fip_kind_name(ursus_up.kind); }
 unsigned int ursus_fip_update_percent(void) { return ursus_update_percent_value(ursus_up.stage); }
 int ursus_fip_update_error(void) { return ursus_up.error; }
 const char *ursus_fip_update_failed_stage(void) { return ursus_up.failed_stage ? ursus_update_stage_name(ursus_up.failed_stage) : "NONE"; }
@@ -607,7 +731,7 @@ const char *ursus_fip_update_transaction_state(void)
     return "NOT_STARTED";
 }
 
-int ursus_fip_update_start(ulong addr, size_t len)
+static int ursus_fip_update_start_kind(ulong addr, size_t len, enum ursus_fip_kind kind)
 {
     bool is_ubi = false;
     int ret;
@@ -621,9 +745,14 @@ int ursus_fip_update_start(ulong addr, size_t len)
     ret = ursus_detect_ubi_layout(&is_ubi);
     if (ret)
         return ret;
-    ret = ursus_fip_validate(addr, len, !is_ubi);
+    ret = ursus_fip_validate_kind(addr, len, !is_ubi, kind);
     if (ret)
         return ret;
+    if (kind == URSUS_FIP_KIND_VANILLA) {
+        ret = ursus_ubi_installed_bl2_matches_pin();
+        if (ret)
+            return ret;
+    }
     buf = map_sysmem(addr, len);
     if (!buf)
         return -ENOMEM;
@@ -632,15 +761,26 @@ int ursus_fip_update_start(ulong addr, size_t len)
     ursus_up.addr = addr;
     ursus_up.len = len;
     ursus_up.ubi_layout = is_ubi;
+    ursus_up.kind = kind;
     ursus_up.stage = URSUS_UP_PRECHECK;
     ursus_up.active = true;
-    printf("URSUS_UPDATE_ARMED layout=%s bytes=%u transport=RAM backend=shared\n",
-           is_ubi ? "UBI" : "STOCK", (unsigned int)len);
+    printf("URSUS_UPDATE_ARMED kind=%s layout=%s bytes=%u transport=RAM backend=shared\n",
+           ursus_fip_kind_name(kind), is_ubi ? "UBI" : "STOCK", (unsigned int)len);
     if (!is_ubi)
         printf("URSUS_UPDATE_STOCK_POWERLOSS_RISK=1 reason=single-copy-bootloader\n");
     else
         printf("URSUS_UPDATE_UBI_TRANSACTION=fip.new->atomic-promote-fip.old\n");
     return 0;
+}
+
+int ursus_fip_update_start(ulong addr, size_t len)
+{
+    return ursus_fip_update_start_kind(addr, len, URSUS_FIP_KIND_URSUS);
+}
+
+int ursus_vanilla_fip_update_start(ulong addr, size_t len)
+{
+    return ursus_fip_update_start_kind(addr, len, URSUS_FIP_KIND_VANILLA);
 }
 
 int ursus_fip_update_step(void)
@@ -668,8 +808,12 @@ int ursus_fip_update_step(void)
     case URSUS_UP_PRECHECK:
         ret = ursus_detect_ubi_layout(&ursus_up.ubi_layout);
         if (ret) return ursus_update_fail_reason(ret, "PRECHECK_LAYOUT_DETECT_FAILED");
-        ret = ursus_fip_validate(ursus_up.addr, ursus_up.len, !ursus_up.ubi_layout);
+        ret = ursus_fip_validate_kind(ursus_up.addr, ursus_up.len, !ursus_up.ubi_layout, ursus_up.kind);
         if (ret) return ursus_update_fail_reason(ret, "PRECHECK_FIP_VALIDATE_FAILED");
+        if (ursus_up.kind == URSUS_FIP_KIND_VANILLA) {
+            ret = ursus_ubi_installed_bl2_matches_pin();
+            if (ret) return ursus_update_fail_reason(ret, "PRECHECK_INSTALLED_BL2_NOT_PINNED");
+        }
         ursus_up.last_success_stage = URSUS_UP_PRECHECK;
         if (ursus_up.ubi_layout)
             ursus_up.stage = URSUS_UP_UBI_ATTACH;
@@ -780,7 +924,7 @@ int ursus_fip_update_step(void)
     case URSUS_UP_UBI_STAGE_VERIFY:
         ret = run_commandf("ubi read 0x%08lx fip.new 0x%lx", URSUS_UBI_READBACK_ADDR, (ulong)ursus_up.len);
         if (ret) return ursus_update_fail(ret);
-        ret = ursus_fip_validate(URSUS_UBI_READBACK_ADDR, ursus_up.len, false);
+        ret = ursus_fip_validate_kind(URSUS_UBI_READBACK_ADDR, ursus_up.len, false, ursus_up.kind);
         if (ret) return ursus_update_fail(ret);
         src = map_sysmem(ursus_up.addr, ursus_up.len);
         if (!src) return ursus_update_fail(-ENOMEM);
@@ -810,7 +954,7 @@ int ursus_fip_update_step(void)
     case URSUS_UP_UBI_VERIFY:
         ret = run_commandf("ubi read 0x%08lx fip 0x%lx", URSUS_UBI_READBACK_ADDR, (ulong)ursus_up.len);
         if (!ret)
-            ret = ursus_fip_validate(URSUS_UBI_READBACK_ADDR, ursus_up.len, false);
+            ret = ursus_fip_validate_kind(URSUS_UBI_READBACK_ADDR, ursus_up.len, false, ursus_up.kind);
         if (ret) {
             printf("URSUS_UPDATE_POSTCOMMIT_VERIFY_FAIL ret=%d action=ROLLBACK\n", ret);
             ursus_up.last_success_stage = URSUS_UP_UBI_VERIFY;
@@ -819,7 +963,10 @@ int ursus_fip_update_step(void)
         }
         ursus_up.stage = URSUS_UP_COMPLETE;
         ursus_up.active = false;
-        printf("URSUS_UPDATE_COMMIT_OK layout=UBI backup=fip.old reboot=MANUAL\n");
+        printf("URSUS_UPDATE_COMMIT_OK layout=UBI kind=%s backup=fip.old reboot=MANUAL\n",
+               ursus_fip_kind_name(ursus_up.kind));
+        if (ursus_up.kind == URSUS_FIP_KIND_VANILLA)
+            printf("URSUS_VANILLA_REPLACE_COMPLETE fip=VANILLA fip.old=URSUSBOOT next_boot=VANILLA_UBOOT\n");
         return 1;
 
     case URSUS_UP_UBI_ROLLBACK:
@@ -837,9 +984,9 @@ int ursus_fip_update_step(void)
     return 0;
 }
 
-static int ursus_update_run(ulong addr, size_t len)
+static int ursus_update_run(ulong addr, size_t len, enum ursus_fip_kind kind)
 {
-    int ret = ursus_fip_update_start(addr, len);
+    int ret = ursus_fip_update_start_kind(addr, len, kind);
     if (ret)
         return ret;
     while (ursus_fip_update_active()) {
@@ -869,17 +1016,35 @@ static int do_ursusupdate(struct cmd_tbl *cmdtp, int flag, int argc,
     if (argc == 4 && !strcmp(argv[1], "write")) {
         addr = hextoul(argv[2], NULL);
         len = hextoul(argv[3], NULL);
-        ret = ursus_update_run(addr, len);
+        ret = ursus_update_run(addr, len, URSUS_FIP_KIND_URSUS);
+        return ret ? CMD_RET_FAILURE : CMD_RET_SUCCESS;
+    }
+    if (argc == 4 && !strcmp(argv[1], "vanilla-check")) {
+        addr = hextoul(argv[2], NULL);
+        len = hextoul(argv[3], NULL);
+        ret = ursus_detect_ubi_layout(&is_ubi);
+        if (ret || ursus_vanilla_fip_validate(addr, len, !is_ubi))
+            return CMD_RET_FAILURE;
+        return ursus_ubi_installed_bl2_matches_pin() ? CMD_RET_FAILURE : CMD_RET_SUCCESS;
+    }
+    if (argc == 5 && !strcmp(argv[1], "vanilla-write") &&
+        !strcmp(argv[4], "REPLACE-URSUSBOOT-WITH-VANILLA")) {
+        addr = hextoul(argv[2], NULL);
+        len = hextoul(argv[3], NULL);
+        ret = ursus_update_run(addr, len, URSUS_FIP_KIND_VANILLA);
         return ret ? CMD_RET_FAILURE : CMD_RET_SUCCESS;
     }
     return CMD_RET_USAGE;
 }
 
-U_BOOT_CMD(ursusupdate, 4, 0, do_ursusupdate,
+U_BOOT_CMD(ursusupdate, 5, 0, do_ursusupdate,
            URSUS_PRODUCT_VERSION " validate/update UrsusBoot FIP from RAM",
            "check <addr> <len>\n"
            "ursusupdate write <addr> <len>\n"
            "  transport examples:\n"
            "  tftpboot ${loadaddr} ursusboot.fip; ursusupdate write ${loadaddr} ${filesize}\n"
            "  loadx ${loadaddr}; ursusupdate write ${loadaddr} ${filesize}\n"
-           "  wget ${loadaddr} http://server/ursusboot.fip; ursusupdate write ${loadaddr} ${filesize}");
+           "  wget ${loadaddr} http://server/ursusboot.fip; ursusupdate write ${loadaddr} ${filesize}\n"
+           "ursusupdate vanilla-check <addr> <len>\n"
+           "ursusupdate vanilla-write <addr> <len> REPLACE-URSUSBOOT-WITH-VANILLA\n"
+           "  one-way: pinned Vanilla OpenWrt U-Boot FIP into UBI fip; UrsusBoot kept as fip.old");

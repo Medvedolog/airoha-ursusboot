@@ -11,6 +11,29 @@ Evidence labels used here:
 
 **QA PASS and BUILD PASS are not HW PASS.**
 
+## 0.1.0-alpha5-UBIUX1-TEST64 (branch `test63`)
+
+TEST64 adds the last leg of the STOCK -> OpenWrt path: replacing UrsusBoot by the Vanilla OpenWrt U-Boot, as a separate, explicitly named one-way operation. Evidence: **SOURCE**, **QA PASS** (standalone QA), local MD/MF builds with stand-in Vanilla FIPs. **HW PENDING.**
+
+### Vanilla replacement (firmware)
+
+- Reuses the UrsusBoot self-update transaction unchanged: UBI `fip.new` -> readback -> atomic `fip`->`fip.old`, `fip.new`->`fip` -> verify -> rollback. UrsusBoot is kept as `fip.old`.
+- A separate candidate kind with its own validator (`ursus_vanilla_fip_validate`): U-Boot 2026.07 **without** UrsusBoot lineage, this board's compatible and not the sibling board's (from `boards/*.h`: `URSUS_BOARD_COMPATIBLE`, new `URSUS_BOARD_OTHER_COMPATIBLE`), and the **SHA256 pinned at build time** (`ursus_vanilla_fip_sha256`, all zero = none pinned = refused).
+- OpenWrt UBI layout only, and only if the installed BL2 (NAND 0..128 KiB) equals the pinned fast BL2 (`ursus_ubi_installed_bl2_matches_pin`).
+- The UrsusBoot self-update keeps its validators (MD in source, MF via its derivation) and never accepts a Vanilla FIP; the Vanilla path never accepts UrsusBoot.
+- Console: `ursusupdate vanilla-check <addr> <len>`, `ursusupdate vanilla-write <addr> <len> REPLACE-URSUSBOOT-WITH-VANILLA`.
+
+### WebFailsafe
+
+- Own upload kind sharing the FIP stage buffer: `/api/vanilla-fip-begin|chunk|discard`; own operation `/api/replace-with-vanilla` with `X-Ursus-Confirm: REPLACE-URSUSBOOT-WITH-VANILLA`. `/api/update-ursusboot` is unchanged.
+- `/api/status`: `vanilla_fip_pinned`, `vanilla_fip_valid`, upload progress, `bootloader_update_kind`.
+- UI: "Replace UrsusBoot with Vanilla U-Boot" in the UrsusBoot update pane, enabled only after the pinned FIP validates; warns that WebFailsafe is gone after reboot (recovery: USB-UART).
+
+### Build
+
+- `scripts/ci/build-release.sh` builds OpenWrt `uboot-airoha` for the board variant (`uboot_variant` in the profile) in the same tree as the fast BL2, and `scripts/vanilla/make_vanilla_fip.py` assembles the Vanilla FIP from the **same donor FIP as the UrsusBoot FIP** with only NT_FW (BL33) replaced (MD: `repack_persistent_fip.rebuild`, MF: two-entry repack). BL31 and all other entries equal the UrsusBoot chain.
+- `build.sh` pins it (`URSUS_VANILLA_FIP`, `scripts/pin_vanilla_fip.py`), checks the digest bytes are compiled in, ships `vanilla-u-boot.fip` (+ `vanilla-u-boot.bin`), records `VANILLA_FIP_SHA256` in BUILD-INFO and `vanilla_fip_sha256` in PROVENANCE.
+
 ## 0.1.0-alpha5-UBIUX1-TEST63 (branch `test63`)
 
 TEST63 makes this repository the single firmware source-of-truth for the Airoha UrsusBoot line and the modular build contract real. `airoha-router-ursusflasher` consumes TEST63 artifacts from an exact commit of this repository.

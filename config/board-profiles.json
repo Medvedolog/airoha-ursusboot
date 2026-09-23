@@ -69,7 +69,8 @@
       "binary_forbid": [
         "Nokia XG-040G-MF"
       ],
-      "openwrt_device": "nokia_xg-040g-md-ubi"
+      "openwrt_device": "nokia_xg-040g-md-ubi",
+      "uboot_variant": "an7581_nokia_xg-040g-md"
     },
     "xg040-mf": {
       "vendor": "Nokia",
@@ -159,7 +160,8 @@
         "URSUS_MF2_STOCKBRIDGE_DISABLED",
         "Nokia XG-040G-MD"
       ],
-      "openwrt_device": "nokia_xg-040g-mf-ubi"
+      "openwrt_device": "nokia_xg-040g-mf-ubi",
+      "uboot_variant": "an7583_nokia_xg-040g-mf"
     },
     "xg140-md": {
       "vendor": "Bell/Nokia",

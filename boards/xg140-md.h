@@ -6,6 +6,7 @@
 #define URSUS_BOARD_PROFILE_MARKER         "URSUS_BOARD_PROFILE=xg140-md"
 #define URSUS_BOARD_MODEL                  "Bell XG-140G-MD"
 #define URSUS_BOARD_COMPATIBLE             "bell,xg-140g-md"
+#define URSUS_BOARD_OTHER_COMPATIBLE       "nokia,xg-040g-md"
 
 /* XG140 keeps the vendor-owned boot-area environment and stock A/B layout. */
 #define URSUS_BOARD_ALLOW_UBI_BOOT          0
