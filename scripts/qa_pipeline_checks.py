@@ -177,12 +177,13 @@ def recovery_safe(root: Path, tmp: Path) -> None:
                    "medveflasher_recovery_safe=rc18"], env
     cfg = tmp / "rcsafe.config"
     cfg.write_text('CONFIG_ENV_IS_IN_UBI=y\nCONFIG_ENV_UBI_VOLUME="ubootenv"\n'
-                   'CONFIG_ENV_UBI_VOLUME_REDUND="ubootenv2"\n# CONFIG_USE_DEFAULT_ENV_FILE is not set\n'
+                   'CONFIG_ENV_UBI_VOLUME_REDUND="ubootenv2"\n# CONFIG_ENV_USE_DEFAULT_ENV_TEXT_FILE is not set\n'
+                   'CONFIG_USE_DEFAULT_ENV_FILE=y\n'
                    'CONFIG_BOOTDELAY=0\n')
     tool = str(root / "scripts/recovery/rcsafe_config.py")
     subprocess.run([sys.executable, tool, str(cfg)], check=True)
     subprocess.run([sys.executable, tool, "--check", str(cfg)], check=True, stdout=subprocess.DEVNULL)
-    assert "ubootenv" not in cfg.read_text()
+    assert "ubootenv" not in cfg.read_text() and "CONFIG_USE_DEFAULT_ENV_FILE" not in cfg.read_text()
     # Both donors repack with the RC18 encoder: BL31 byte-exact, known size, no EOPM.
     raw = tmp / "rcsafe-standin.bin"
     raw.write_bytes(b"U-Boot 2026.07 RECOVERY_SAFE stand-in " * 4096)

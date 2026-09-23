@@ -13,8 +13,9 @@ import sys
 from pathlib import Path
 
 WANT = {
-    "CONFIG_USE_DEFAULT_ENV_FILE": "y",
-    "CONFIG_DEFAULT_ENV_FILE": '"defenvs/ursus_rcsafe_env"',
+    # U-Boot >= 2023.07 names (OpenWrt 3d1645ee ships U-Boot 2026.07).
+    "CONFIG_ENV_USE_DEFAULT_ENV_TEXT_FILE": "y",
+    "CONFIG_ENV_DEFAULT_ENV_TEXT_FILE": '"defenvs/ursus_rcsafe_env"',
     "CONFIG_ENV_UBI_VOLUME": '"RCSAFE00"',
     "CONFIG_ENV_UBI_VOLUME_REDUND": '"RCSAFE002"',
     "CONFIG_BOOTDELAY": "-1",
@@ -43,11 +44,15 @@ def main() -> int:
             raise SystemExit(f"RECOVERY_SAFE config not applied: {bad}")
         print("RCSAFE_CONFIG=PASS " + " ".join(f"{k}={v}" for k, v in WANT.items()))
         return 0
+    # Pre-2023.07 names would be dropped by olddefconfig; never leave them behind.
+    stale = ("CONFIG_USE_DEFAULT_ENV_FILE", "CONFIG_DEFAULT_ENV_FILE")
     lines = []
     seen = set()
     for line in text.splitlines():
         key = line.split("=", 1)[0] if line.startswith("CONFIG_") else (
             line[2:].split(" ", 1)[0] if line.startswith("# CONFIG_") else None)
+        if key in stale:
+            continue
         if key in WANT:
             if key not in seen:
                 lines.append(f"{key}={WANT[key]}")
