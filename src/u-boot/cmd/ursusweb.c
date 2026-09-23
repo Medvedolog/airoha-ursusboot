@@ -2744,6 +2744,10 @@ static int do_ursusweb(struct cmd_tbl *cmdtp, int flag, int argc, char *const ar
             } else if (ret > 0) {
                 ursus_logf("UBI: 100%% - COMPLETE - seven UBI volumes and complete BL2 verified.\n");
                 ursus_logf("UBI: NAND ready. Reboot manually from the Web UI.\n");
+                /* The layout was probed at start-up as STOCK. After a verified
+                 * migration the NAND is OpenWrt UBI; later operations in this
+                 * session (e.g. the Vanilla replacement) must see that. */
+                strcpy(ursus_current_layout, "OPENWRT_UBI");
             }
         }
         if (ursus_pending_bootloader_update && ursus_fip_update_active()) {
