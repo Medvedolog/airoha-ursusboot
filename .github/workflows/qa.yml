@@ -9,4 +9,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The recovery-safe stage builds the RC18 LZMA encoder (lzma1ext_noeopm.c).
+      - name: Host dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y liblzma-dev
       - run: bash ./scripts/qa.sh
