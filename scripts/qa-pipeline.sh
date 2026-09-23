@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 python3 -m py_compile "$ROOT"/scripts/mf/*.py "$ROOT"/scripts/mf/medve/*.py "$ROOT"/scripts/atf/*.py \
-    "$ROOT"/scripts/vanilla/*.py "$ROOT"/scripts/pin_vanilla_fip.py
+    "$ROOT"/scripts/vanilla/*.py "$ROOT"/scripts/pin_vanilla_fip.py "$ROOT"/scripts/recovery/*.py
 bash -n "$ROOT/build.sh" "$ROOT/scripts/ci/build-release.sh"
 grep -q '^/work/$' "$ROOT/.gitignore"
 V="$(tr -d '[:space:]' < "$ROOT/VERSION")"
@@ -18,6 +18,7 @@ QA_TMP="$(mktemp -d)"
 trap 'rm -rf "$QA_TMP"' EXIT
 python3 "$ROOT/scripts/qa_pipeline_checks.py" pin "$ROOT" "$QA_TMP"
 python3 "$ROOT/scripts/qa_pipeline_checks.py" vanilla "$ROOT" "$QA_TMP"
+python3 "$ROOT/scripts/qa_pipeline_checks.py" recovery-safe "$ROOT" "$QA_TMP"
 
 mkdir -p "$QA_TMP/tree"
 cp -a "$ROOT/src/u-boot" "$QA_TMP/tree/md"

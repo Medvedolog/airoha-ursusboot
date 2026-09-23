@@ -1,0 +1,12 @@
+MD (Nokia XG-040G-MD / Airoha AN7581) reference inputs.
+
+ursusboot-test61-update.fip
+  role: donor FIP for the persistent UrsusBoot and the Vanilla FIP (Nokia stock format).
+
+rc18-md-recovery-safe-bl31-uboot-ethfix.fip
+  from Medvedolog/nokia-router-medveflasher 342cac4cb99a924f3d83eb8e4b5259490377704e (rc35)
+  (= UrsusFlasher ursusflasher/src/recovery/openwrt-airoha-an7581-nokia_xg-040g-md-ubi-bl31-uboot-ethfix.fip)
+  size 308154, sha256 2ebcbf3981e3e56b6389521fc2caa3320cf259c08f173b660b29366b9290bcc1
+  role: donor FIP for the RECOVERY_SAFE BootROM/UART RAM U-Boot: BL31 kept byte-exact,
+  BL33 replaced by the Fudan-capable OpenWrt U-Boot built with the RC18 RECOVERY_SAFE
+  environment (scripts/recovery/).

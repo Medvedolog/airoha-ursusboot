@@ -11,6 +11,26 @@ Evidence labels used here:
 
 **QA PASS and BUILD PASS are not HW PASS.**
 
+## 0.1.0-alpha5-t66 (branch `test63`)
+
+UrsusBoot itself is unchanged from t65. The release adds a Fudan-capable
+RECOVERY_SAFE RAM U-Boot for BootROM/UART recovery, per board:
+
+- The MedveFlasher RC18 RAM U-Boots used for UART stock restore, backup and
+  bootloader recovery only know Fudan FM25S01A (checked in the shipped BL33),
+  so on an FM25G02B board (e.g. the XG-040G-MD tested with t64) the UART path
+  cannot see the NAND.
+- build-release.sh rebuilds the same OpenWrt 3d1645ee U-Boot (+ PR 24025,
+  FM25G01B/FM25G02B) with the RC18 contract: default environment exactly
+  `scripts/recovery/rcsafe_env` (`bootdelay=-1`, `bootcmd`/`preboot` echo only,
+  `medveflasher_recovery_safe=rc18`), saved environment only in the
+  never-existing UBI volumes `RCSAFE00`/`RCSAFE002`. It is packed into the pinned
+  RC18 FIP of the board (`recovery_safe_donor`; BL31 byte-exact) with the RC18
+  encoder (known size, no EOPM): `recovery-safe-u-boot.fip`.
+- PROVENANCE records the FIP, BL31 and BL33 digests. QA checks the environment,
+  the config transform, both donors and the packing. HW PENDING (UART: item 7
+  on an FM25G02B MD first, it writes nothing).
+
 ## 0.1.0-alpha5-t65 (branch `test63`)
 
 Fix from the first t64 hardware run (XG-040G-MD): STOCK -> UrsusBoot -> UBI migration

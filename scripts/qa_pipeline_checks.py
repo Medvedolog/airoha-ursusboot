@@ -152,6 +152,57 @@ def transforms(root: Path, trees: Path) -> None:
     print("MD/MF source transforms + board policy + Vanilla replacement: PASS")
 
 
+def recovery_safe(root: Path, tmp: Path) -> None:
+    """BootROM/UART RECOVERY_SAFE RAM U-Boot: RC18 contract, pinned donors, packing."""
+    import hashlib
+    import json
+    import subprocess
+
+    def sha(rel: str) -> str:
+        return hashlib.sha256((root / rel).read_bytes()).hexdigest()
+
+    reg = json.loads((root / "config/board-profiles.json").read_text())["profiles"]
+    donors = {
+        "xg040-md": ("reference/md/rc18-md-recovery-safe-bl31-uboot-ethfix.fip",
+                     "2ebcbf3981e3e56b6389521fc2caa3320cf259c08f173b660b29366b9290bcc1"),
+        "xg040-mf": ("reference/mf/medve-rc35-mf-recovery-safe-bl31-uboot.fip",
+                     "8bfe8870e44923a463a3ed66c8b1906214f5c820fd8c15865c63430185de8bb2"),
+    }
+    for board, (rel, digest) in donors.items():
+        assert reg[board].get("recovery_safe_donor") == rel, (board, reg[board].get("recovery_safe_donor"))
+        assert sha(rel) == digest, (board, rel)
+    # Exactly the RC18 default environment: no autoboot, marker for the host gates.
+    env = (root / "scripts/recovery/rcsafe_env").read_text().splitlines()
+    assert env == ["bootdelay=-1", "bootcmd=echo RECOVERY_SAFE_RC18", "preboot=echo RECOVERY_SAFE_RC18",
+                   "medveflasher_recovery_safe=rc18"], env
+    cfg = tmp / "rcsafe.config"
+    cfg.write_text('CONFIG_ENV_IS_IN_UBI=y\nCONFIG_ENV_UBI_VOLUME="ubootenv"\n'
+                   'CONFIG_ENV_UBI_VOLUME_REDUND="ubootenv2"\n# CONFIG_USE_DEFAULT_ENV_FILE is not set\n'
+                   'CONFIG_BOOTDELAY=0\n')
+    tool = str(root / "scripts/recovery/rcsafe_config.py")
+    subprocess.run([sys.executable, tool, str(cfg)], check=True)
+    subprocess.run([sys.executable, tool, "--check", str(cfg)], check=True, stdout=subprocess.DEVNULL)
+    assert "ubootenv" not in cfg.read_text()
+    # Both donors repack with the RC18 encoder: BL31 byte-exact, known size, no EOPM.
+    raw = tmp / "rcsafe-standin.bin"
+    raw.write_bytes(b"U-Boot 2026.07 RECOVERY_SAFE stand-in " * 4096)
+    for board, (rel, _digest) in donors.items():
+        rep = tmp / f"{board}-rs.json"
+        subprocess.run([sys.executable, str(root / "scripts/mf/mf2_repack_from_medve.py"),
+                        "--medve-patcher", str(root / "scripts/mf/medve/patch_recovery_safe_fip.py"),
+                        "--source", str(root / rel), "--bl33-raw", str(raw),
+                        "--bl33-output", str(tmp / f"{board}-rs.lzma"), "--output", str(tmp / f"{board}-rs.fip"),
+                        "--report", str(rep)], check=True, stdout=subprocess.DEVNULL)
+        r = json.loads(rep.read_text())
+        assert r["bl31_byte_exact"] and r["mf2_bl33_roundtrip"] and r["mf2_bl33_lzma_known_size"], board
+        assert r["mf2_bl33_lzma_eopm"] is False and r["entry_count"] == 2, board
+    build = (root / "scripts/ci/build-release.sh").read_text()
+    for needle in ("rcsafe_config.py", "--check", "recovery_safe_donor", "FM25G02B",
+                   "medveflasher_recovery_safe=rc18", "RCSAFE00", "recovery-safe-u-boot.fip"):
+        assert needle in build, needle
+    print("RECOVERY_SAFE UART RAM U-Boot (RC18 env, pinned donors, RC18 packing): PASS")
+
+
 if __name__ == "__main__":
     cmd, *args = sys.argv[1:]
-    {"profiles": profiles, "pin": pin, "vanilla": vanilla, "transforms": transforms}[cmd](*map(Path, args))
+    {"profiles": profiles, "pin": pin, "vanilla": vanilla, "transforms": transforms, "recovery-safe": recovery_safe}[cmd](*map(Path, args))

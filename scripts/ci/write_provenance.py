@@ -38,6 +38,10 @@ def main() -> None:
     if info.get("UBI_PRELOADER_SHA256") != hashlib.sha256(pre).hexdigest():
         raise SystemExit("BUILD-INFO pin does not match the packaged preloader")
     vanilla = (out / "vanilla-u-boot.fip").read_bytes()
+    rs = json.loads((out / "RECOVERY-SAFE-FIP-REPACK.json").read_text())
+    if rs.get("output_sha256") != sha(out / "recovery-safe-u-boot.fip") or rs.get("bl31_byte_exact") is not True \
+            or rs.get("mf2_bl33_roundtrip") is not True or rs.get("mf2_bl33_lzma_eopm") is not False:
+        raise SystemExit("RECOVERY_SAFE FIP report does not match the packaged FIP")
     if info.get("VANILLA_FIP_SHA256") != hashlib.sha256(vanilla).hexdigest():
         raise SystemExit("BUILD-INFO Vanilla pin does not match the packaged Vanilla FIP")
     commit = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip()
@@ -58,6 +62,12 @@ def main() -> None:
         "ubi_bl2_image_sha256": hashlib.sha256(cand).hexdigest(),
         "vanilla_fip_sha256": hashlib.sha256(vanilla).hexdigest(),
         "vanilla_uboot_variant": a.uboot_variant,
+        # BootROM/UART RAM recovery (RC18 RECOVERY_SAFE contract, Fudan-capable).
+        "recovery_safe_fip_sha256": sha(out / "recovery-safe-u-boot.fip"),
+        "recovery_safe_fip_size": (out / "recovery-safe-u-boot.fip").stat().st_size,
+        "recovery_safe_bl31_sha256": rs["bl31_compressed_sha256"],
+        "recovery_safe_bl33_sha256": rs["mf2_bl33_compressed_sha256"],
+        "recovery_safe_donor_sha256": rs["source_sha256"],
         "files": {p.name: sha(p) for p in sorted(out.iterdir()) if p.is_file() and p.name != "PROVENANCE.json"},
         "hw_status": "HW_PENDING",
     }

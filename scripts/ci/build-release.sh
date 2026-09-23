@@ -91,6 +91,48 @@ grep -Fq FM25G02B "$(dirname "$VBIN")/drivers/mtd/nand/spi/fmsh.c" \
 python3 -c "import lzma,sys; assert lzma.decompress(open(sys.argv[1],'rb').read(), format=lzma.FORMAT_ALONE) == open(sys.argv[2],'rb').read(), 'staged u-boot.lzma is not this u-boot.bin'" "$VLZMA" "$VBIN"
 cp "$VLZMA" "$OUTBL2/vanilla-u-boot.lzma"
 cp "$VBIN" "$OUTBL2/vanilla-u-boot.bin"
+
+# --- RECOVERY_SAFE RAM U-Boot for BootROM/UART recovery (Fudan-capable) -----
+# The MedveFlasher RC18 RAM U-Boots only know Fudan FM25S01A, so UART restore,
+# backup and bootloader recovery cannot see an FM25G02B NAND. Rebuild this same
+# OpenWrt U-Boot tree (PR 24025) with the RC18 RECOVERY_SAFE contract (default
+# env = scripts/recovery/rcsafe_env, saved env only in never-existing UBI volumes)
+# and pack it into the pinned RC18 FIP with the RC18 encoder (BL31 byte-exact).
+RSDIR="$OUTBL2/rcsafe-u-boot"
+rm -rf "$RSDIR"
+cp -a "$(dirname "$VBIN")" "$RSDIR"
+cp "$RSDIR/.config" "$OUTBL2/rcsafe.base.config"
+TCROSS="$(find "$PWD/staging_dir" -path '*/toolchain-*/bin/*-openwrt-linux-musl-gcc' -print -quit)"
+[ -n "$TCROSS" ] || { echo "OpenWrt target toolchain not found for the RECOVERY_SAFE U-Boot" >&2; exit 4; }
+(
+    export PATH="$PWD/staging_dir/host/bin:$(dirname "$TCROSS"):$PATH" STAGING_DIR="$PWD/staging_dir"
+    export SOURCE_DATE_EPOCH="$(git -C "$ROOT" show -s --format=%ct HEAD)"
+    make -s -C "$RSDIR" mrproper
+    cp "$OUTBL2/rcsafe.base.config" "$RSDIR/.config"
+    mkdir -p "$RSDIR/defenvs"
+    cp "$ROOT/scripts/recovery/rcsafe_env" "$RSDIR/defenvs/ursus_rcsafe_env"
+    python3 "$ROOT/scripts/recovery/rcsafe_config.py" "$RSDIR/.config"
+    make -C "$RSDIR" CROSS_COMPILE="${TCROSS%gcc}" olddefconfig
+    python3 "$ROOT/scripts/recovery/rcsafe_config.py" --check "$RSDIR/.config"
+    make -C "$RSDIR" CROSS_COMPILE="${TCROSS%gcc}" -j"$(nproc)"
+) 2>&1 | tee "$OUTBL2/rcsafe-uboot.log"
+RSBIN="$RSDIR/u-boot.bin"
+[ -s "$RSBIN" ] || { echo "RECOVERY_SAFE u-boot.bin was not built" >&2; exit 4; }
+for m in "U-Boot 2026.07" FM25G02B "medveflasher_recovery_safe=rc18" "bootdelay=-1" \
+         "bootcmd=echo RECOVERY_SAFE_RC18" RCSAFE00 RCSAFE002 tftpboot crc32 "$(prof compatible)"; do
+    grep -aFq "$m" "$RSBIN" || { echo "RECOVERY_SAFE U-Boot lacks $m" >&2; exit 4; }
+done
+for m in UrsusBoot- ursusdispatch; do
+    ! grep -aFq "$m" "$RSBIN" || { echo "RECOVERY_SAFE U-Boot unexpectedly contains $m" >&2; exit 4; }
+done
+python3 "$ROOT/scripts/mf/mf2_repack_from_medve.py" \
+    --medve-patcher "$ROOT/scripts/mf/medve/patch_recovery_safe_fip.py" \
+    --source "$ROOT/$(prof recovery_safe_donor)" \
+    --bl33-raw "$RSBIN" \
+    --bl33-output "$OUTBL2/recovery-safe-u-boot.lzma" \
+    --output "$OUTBL2/recovery-safe-u-boot.fip" \
+    --report "$OUTBL2/RECOVERY-SAFE-FIP-REPACK.json" | tee "$OUTBL2/recovery-safe-fip.txt"
+cp "$RSBIN" "$OUTBL2/recovery-safe-u-boot.bin"
 POLICY_H="$ROOT/boards/$(prof board_policy_header)"
 OTHER="$(sed -n 's/^#define URSUS_BOARD_OTHER_COMPATIBLE[[:space:]]*"\(.*\)"/\1/p' "$POLICY_H")"
 [ -n "$OTHER" ] || { echo "board $BOARD: $POLICY_H has no URSUS_BOARD_OTHER_COMPATIBLE" >&2; exit 3; }
@@ -108,6 +150,9 @@ OUT="$ROOT/dist/$BOARD"
 cp "$OUTBL2/preloader.fip" "$OUT/ursusboot-ubi-preloader.fip"
 cp "$OUTBL2/${SOC}-bl2.bin" "$OUT/${SOC}-bl2.bin"
 cp "$OUTBL2/vanilla-u-boot.bin" "$OUT/vanilla-u-boot.bin"
+cp "$OUTBL2/recovery-safe-u-boot.fip" "$OUT/recovery-safe-u-boot.fip"
+cp "$OUTBL2/recovery-safe-u-boot.bin" "$OUT/recovery-safe-u-boot.bin"
+cp "$OUTBL2/RECOVERY-SAFE-FIP-REPACK.json" "$OUT/RECOVERY-SAFE-FIP-REPACK.json"
 python3 "$ROOT/scripts/ci/write_provenance.py" --out "$OUT" --board "$BOARD" --openwrt-ref "$WANT_REF" \
     --openwrt-patches-from "$CFG" \
     --atf-source "$ATF_SRC" --atf-patch "$PATCH" --atf-upstream "$(cfg atf_patch_upstream)" \

@@ -70,7 +70,8 @@
         "Nokia XG-040G-MF"
       ],
       "openwrt_device": "nokia_xg-040g-md-ubi",
-      "uboot_variant": "an7581_nokia_xg-040g-md"
+      "uboot_variant": "an7581_nokia_xg-040g-md",
+      "recovery_safe_donor": "reference/md/rc18-md-recovery-safe-bl31-uboot-ethfix.fip"
     },
     "xg040-mf": {
       "vendor": "Nokia",
@@ -161,7 +162,8 @@
         "Nokia XG-040G-MD"
       ],
       "openwrt_device": "nokia_xg-040g-mf-ubi",
-      "uboot_variant": "an7583_nokia_xg-040g-mf"
+      "uboot_variant": "an7583_nokia_xg-040g-mf",
+      "recovery_safe_donor": "reference/mf/medve-rc35-mf-recovery-safe-bl31-uboot.fip"
     },
     "xg140-md": {
       "vendor": "Bell/Nokia",

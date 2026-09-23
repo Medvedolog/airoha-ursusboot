@@ -1,0 +1,4 @@
+bootdelay=-1
+bootcmd=echo RECOVERY_SAFE_RC18
+preboot=echo RECOVERY_SAFE_RC18
+medveflasher_recovery_safe=rc18
