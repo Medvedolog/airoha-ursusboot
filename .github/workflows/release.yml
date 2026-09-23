@@ -1,0 +1,108 @@
+name: Release
+
+# Publishes a GitHub prerelease from a successful "Build" run. It rebuilds
+# nothing: it downloads the per-board dist/ of that run, checks each SHA256SUMS
+# and PROVENANCE.json against the run's commit, and tags that exact commit
+# v<VERSION>. Run it from main after the hardware acceptance in docs/TESTING.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: 'Successful "Build" run (push or dispatch) of the commit to release'
+        required: true
+        type: string
+      hardware_passed:
+        description: "Hardware acceptance passed on XG-040G-MD and XG-040G-MF (docs/TESTING.md)"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Require hardware acceptance
+        if: ${{ !inputs.hardware_passed }}
+        run: |
+          echo "Publish only after the hardware acceptance in docs/TESTING.md passed on MD and MF." >&2
+          exit 2
+
+      - name: Resolve the build run
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN: ${{ inputs.build_run_id }}
+        run: |
+          set -euo pipefail
+          RUN="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN")"
+          test "$(jq -r .path <<<"$RUN")" = ".github/workflows/build.yml"
+          test "$(jq -r .conclusion <<<"$RUN")" = success
+          SHA="$(jq -r .head_sha <<<"$RUN")"
+          # Only commits already on main are released.
+          gh api "repos/$GITHUB_REPOSITORY/compare/$SHA...main" --jq .status | grep -Eqx 'ahead|identical'
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.run.outputs.sha }}
+
+      - name: Download and verify dist
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN: ${{ inputs.build_run_id }}
+          SHA: ${{ steps.run.outputs.sha }}
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d '\r\n' < VERSION)"
+          TAG="v$VERSION"
+          mkdir -p assets
+          for BOARD in xg040-md xg040-mf; do
+            gh run download "$BUILD_RUN" -R "$GITHUB_REPOSITORY" -n "ursusboot-$BOARD-$SHA" -D "dl/$BOARD"
+            # SHA256SUMS carries the builder's absolute paths; check by file name.
+            while read -r SUM FILE; do
+              echo "$SUM  dl/$BOARD/$(basename "$FILE")"
+            done < "dl/$BOARD/SHA256SUMS" | sha256sum -c -
+            python3 - "dl/$BOARD/PROVENANCE.json" "$SHA" "$VERSION" <<'PY'
+          import json, sys
+          p = json.load(open(sys.argv[1]))
+          flat = json.dumps(p)
+          assert sys.argv[2] in flat, "PROVENANCE.json does not name the build commit"
+          assert sys.argv[3] in flat, "PROVENANCE.json does not name VERSION"
+          PY
+            (cd dl && zip -qr "../assets/ursusboot-$VERSION-$BOARD.zip" "$BOARD")
+          done
+          (cd assets && sha256sum *.zip > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to overwrite it." >&2
+            exit 3
+          fi
+          # Changelog section of this version.
+          awk -v v="## $VERSION" 'index($0,v)==1{on=1;next} on&&/^## /{exit} on' CHANGELOG.md > notes.md
+          { echo; echo "Commit: \`$SHA\` · build run $BUILD_RUN"; echo; echo '```text'; cat assets/SHA256SUMS.txt; echo '```'; } >> notes.md
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          SHA: ${{ steps.run.outputs.sha }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SHA" \
+            --title "UrsusBoot ${{ steps.meta.outputs.version }}" \
+            --notes-file notes.md \
+            --prerelease

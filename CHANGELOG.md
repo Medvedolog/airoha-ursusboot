@@ -30,6 +30,11 @@ RECOVERY_SAFE RAM U-Boot for BootROM/UART recovery, per board:
 - PROVENANCE records the FIP, BL31 and BL33 digests. QA checks the environment,
   the config transform, both donors and the packing. HW PENDING (UART: item 7
   on an FM25G02B MD first, it writes nothing).
+- HW PASS (XG-040G-MF, UrsusFlasher 0.2.66 ONE-KEY Vanilla = item 4): Nokia
+  STOCK -> full backup -> UrsusBoot t66 -> OpenWrt UBI -> Vanilla FIP
+  (`18b1650e…22b4cb`, UrsusBoot kept in `fip.old`); the t65 environment reset
+  let Vanilla boot OpenWrt unattended (no stop at the prompt). The same route
+  was HW PASS on XG-040G-MD with t64 plus a manual `env default -a`.
 
 ## 0.1.0-alpha5-t65 (branch `test63`)
 
