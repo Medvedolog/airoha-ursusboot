@@ -59,6 +59,8 @@ DECLARE_GLOBAL_DATA_PTR;
 #define URSUS_FIP_SERIAL       0x12345678U
 #define URSUS_FIP_MAX_ENTRIES  32
 #define URSUS_REBOOT_GRACE_MS   500U
+#define URSUS_REBOOT_FORCE_MS   3000U
+#define URSUS_REBOOT_RETRIES       3U
 #define URSUS_REQ_MATCH(req, lit) (!strncmp((req), (lit), sizeof(lit) - 1))
 
 #define URSUS_RC_OK                    "OK"
@@ -84,6 +86,7 @@ static bool ursus_pending_bootloader_update;
 static bool ursus_pending_reboot;
 static bool ursus_reboot_response_queued;
 static ulong ursus_reboot_response_queued_at;
+static ulong ursus_reboot_request_at;
 static bool ursus_web_running;
 static bool ursus_network_failed;
 static int ursus_last_rx_error;
@@ -1598,7 +1601,18 @@ static void ursus_build_status(void)
     const char *boot_validation_result = "UNKNOWN";
 
     if (!strcmp(ursus_current_layout, "OPENWRT_UBI")) {
-        if (!ursus_ubi_diag.attached)
+        /*
+         * A completed STOCK->UBI migration already verified every created UBI
+         * volume and the final BL2 readback.  The migration backend may leave
+         * UBI detached afterwards, so a fresh diagnostic attach in the same
+         * WebFailsafe session is not authoritative and used to produce a false
+         * UBI_ATTACH_FAILED.  Preserve real attach failures on a fresh boot,
+         * but report the completed transaction as verified until reboot.
+         */
+        if (ursus_ubi_migration_complete() && !ursus_ubi_diag.attached) {
+            boot_validation_reason = "UBI_MIGRATION_VERIFIED";
+            boot_validation_result = "OK";
+        } else if (!ursus_ubi_diag.attached)
             boot_validation_reason = "UBI_ATTACH_FAILED";
         else if (!ursus_ubi_diag.fip.present)
             boot_validation_reason = "FIP_MISSING";
@@ -1612,8 +1626,9 @@ static void ursus_build_status(void)
             boot_validation_reason = "FIT_MISSING";
         else
             boot_validation_reason = "FIT_INVALID";
-        boot_validation_result = (!strcmp(boot_validation_reason, "FIT_OK") ||
-                                  !strcmp(boot_validation_reason, "FIT_OLD_FALLBACK")) ? "OK" : "ERROR";
+        if (strcmp(boot_validation_reason, "UBI_MIGRATION_VERIFIED"))
+            boot_validation_result = (!strcmp(boot_validation_reason, "FIT_OK") ||
+                                      !strcmp(boot_validation_reason, "FIT_OLD_FALLBACK")) ? "OK" : "ERROR";
     } else if (!strcmp(ursus_current_layout, "STOCK")) {
         boot_validation_reason = ursus_stock_fip && ursus_stock_fit ? "STOCK_OK" : "STOCK_INCOMPLETE";
         boot_validation_result = ursus_stock_fip && ursus_stock_fit ? "OK" : "ERROR";
@@ -1836,6 +1851,8 @@ static err_t ursus_http_pump(struct tcp_pcb *pcb, struct ursus_conn *c)
         if (c->reboot_after_response && !ursus_reboot_response_queued) {
             ursus_reboot_response_queued = true;
             ursus_reboot_response_queued_at = get_timer(0);
+            ursus_logf("WEB REBOOT: HTTP 200 queued grace_ms=%u\n",
+                       URSUS_REBOOT_GRACE_MS);
             printf("URSUS_WEBREBOOT_RESPONSE_QUEUED grace_ms=%u\n",
                    URSUS_REBOOT_GRACE_MS);
         }
@@ -2355,12 +2372,27 @@ static err_t ursus_route_ready(struct tcp_pcb *pcb, struct ursus_conn *c)
     }
     if (URSUS_REQ_MATCH(c->reqhdr, "POST /api/reboot ")) {
         char confirm[32];
-        if ((!ursus_ubi_update_complete() && !ursus_ubi_migration_complete() && !ursus_fip_update_complete()) ||
+        bool reboot_gate = ursus_ubi_update_complete() || ursus_ubi_migration_complete() ||
+                           ursus_fip_update_complete();
+
+        ursus_logf("WEB REBOOT: REQUEST received migration_complete=%u update_complete=%u fip_complete=%u\n",
+                   ursus_ubi_migration_complete() ? 1U : 0U,
+                   ursus_ubi_update_complete() ? 1U : 0U,
+                   ursus_fip_update_complete() ? 1U : 0U);
+        if (!reboot_gate ||
             !ursus_parse_header_value(c->reqhdr, "X-Ursus-Confirm", confirm, sizeof(confirm)) ||
-            strcmp(confirm, "REBOOT"))
+            strcmp(confirm, "REBOOT")) {
+            ursus_logf("WEB REBOOT: REQUEST rejected gate=%u confirm=%s\n",
+                       reboot_gate ? 1U : 0U,
+                       ursus_parse_header_value(c->reqhdr, "X-Ursus-Confirm", confirm, sizeof(confirm)) ?
+                           confirm : "MISSING");
             return ursus_http_start_response(pcb, c, 409, "application/json",
                 "{\"result\":\"REJECTED\",\"reason\":\"completed flash operation and explicit reboot confirmation required\"}\n");
+        }
         ursus_pending_reboot = true;
+        ursus_reboot_request_at = get_timer(0);
+        ursus_logf("WEB REBOOT: REQUEST accepted force_timeout_ms=%u retries=%u\n",
+                   URSUS_REBOOT_FORCE_MS, URSUS_REBOOT_RETRIES);
         c->stop_after_response = true;
         c->reboot_after_response = true;
         return ursus_http_start_response(pcb, c, 200, "application/json",
@@ -2663,6 +2695,7 @@ static int do_ursusweb(struct cmd_tbl *cmdtp, int flag, int argc, char *const ar
     ursus_pending_reboot = false;
     ursus_reboot_response_queued = false;
     ursus_reboot_response_queued_at = 0;
+    ursus_reboot_request_at = 0;
     if (ursus_console_capture_selftest())
         ursus_logf("CONSOLE: capture selftest FAILED\n");
     else
@@ -2707,7 +2740,22 @@ static int do_ursusweb(struct cmd_tbl *cmdtp, int flag, int argc, char *const ar
         ursus_led_poll();
         if (ursus_pending_reboot && ursus_reboot_response_queued &&
             get_timer(ursus_reboot_response_queued_at) >= URSUS_REBOOT_GRACE_MS) {
+            ursus_logf("WEB REBOOT: grace expired action=reset\n");
             printf("URSUS_WEBREBOOT_GRACE_EXPIRED action=reset\n");
+            ursus_stop = true;
+            continue;
+        }
+        if (ursus_pending_reboot && ursus_reboot_request_at &&
+            get_timer(ursus_reboot_request_at) >= URSUS_REBOOT_FORCE_MS) {
+            /*
+             * Once a confirmed reboot POST has been accepted, never depend
+             * forever on the HTTP reply reaching the queued state.  A wedged
+             * TCP client/connection must not leave WebFailsafe stuck.
+             */
+            ursus_logf("WEB REBOOT: response timeout action=forced-reset timeout_ms=%u\n",
+                       URSUS_REBOOT_FORCE_MS);
+            printf("URSUS_WEBREBOOT_FORCE_TIMEOUT action=reset timeout_ms=%u\n",
+                   URSUS_REBOOT_FORCE_MS);
             ursus_stop = true;
             continue;
         }
@@ -2780,10 +2828,27 @@ static int do_ursusweb(struct cmd_tbl *cmdtp, int flag, int argc, char *const ar
         return CMD_RET_FAILURE;
 
     if (ursus_pending_reboot) {
+        unsigned int attempt;
+
         printf("URSUS_UBI_MIGRATION_OPERATOR_REBOOT\n");
         mdelay(300);
-        run_command("reset", 0);
-        return CMD_RET_SUCCESS;
+        for (attempt = 1; attempt <= URSUS_REBOOT_RETRIES; attempt++) {
+            ursus_logf("WEB REBOOT: invoking reset attempt=%u/%u\n",
+                       attempt, URSUS_REBOOT_RETRIES);
+            ret = run_command("reset", 0);
+            /*
+             * A successful platform reset never returns.  If it does, retain
+             * evidence and retry the explicit operator-requested reboot.
+             */
+            ursus_logf("WEB REBOOT: reset returned attempt=%u ret=%d\n",
+                       attempt, ret);
+            printf("URSUS_WEBREBOOT_RESET_RETURNED attempt=%u ret=%d\n",
+                   attempt, ret);
+            mdelay(250);
+        }
+        ursus_logf("WEB REBOOT: FAILED retries_exhausted=%u\n",
+                   URSUS_REBOOT_RETRIES);
+        return CMD_RET_FAILURE;
     }
 
     if (ursus_pending_factory_install) {

@@ -11,6 +11,29 @@ Evidence labels used here:
 
 **QA PASS and BUILD PASS are not HW PASS.**
 
+## 0.1.0-alpha5-t67 (branch `test63`)
+
+Corrective WebFailsafe release after a real XG-040G-MF/t66 STOCK->UBI run where
+the migration completed and OpenWrt subsequently booted, but the operator reported
+that the Web **Reboot into OpenWrt** button appeared not to act.
+
+- Post-migration status no longer reports a false `UBI_ATTACH_FAILED` merely
+  because the migration backend has detached UBI after fully verifying all seven
+  volumes and BL2.  In that same completed WebFailsafe transaction the boot
+  validation is reported as `UBI_MIGRATION_VERIFIED`; a fresh boot still treats
+  a real UBI attach failure as an error.
+- The reboot path now records request receipt, gate state, HTTP-200 queueing,
+  grace expiry / forced timeout, reset invocation and a returned reset command
+  through `ursus_logf()`, so the normal diagnostic bundle can identify where
+  reboot stopped.
+- A confirmed reboot POST has a 3-second bounded fallback: if the HTTP response
+  never reaches the queued state, WebFailsafe still exits and resets instead of
+  waiting forever on the TCP client.
+- Platform reset is attempted up to three times if the U-Boot `reset` command
+  unexpectedly returns.  A successful reset does not return; exhausted retries
+  are logged and return failure.
+- **SOURCE / QA target only until exact CI completes.  HW regression pending.**
+
 ## 0.1.0-alpha5-t66 (branch `test63`)
 
 UrsusBoot itself is unchanged from t65. The release adds a Fudan-capable
