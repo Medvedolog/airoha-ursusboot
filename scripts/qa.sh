@@ -58,12 +58,21 @@ grep -A4 'ret = ping_raw_init(&ctx);' "$ROOT/src/u-boot/cmd/lwip/ping.c" | grep 
 grep -q 'bool borrowed = false' "$ROOT/src/u-boot/net/lwip/tftp.c"
 grep -q 'URSUS_CONSOLE_DEFER' "$ROOT/src/u-boot/cmd/ursusweb.c"
 grep -q 'URSUS_WEB_STOP_REQUEST source=UART' "$ROOT/src/u-boot/cmd/ursusweb.c"
-grep -q 'WEB REBOOT: REQUEST received' "$ROOT/src/u-boot/cmd/ursusweb.c"
-grep -q 'WEB REBOOT: HTTP 200 queued' "$ROOT/src/u-boot/cmd/ursusweb.c"
-grep -q 'WEB REBOOT: response timeout action=forced-reset' "$ROOT/src/u-boot/cmd/ursusweb.c"
-grep -q 'WEB REBOOT: invoking reset attempt=' "$ROOT/src/u-boot/cmd/ursusweb.c"
-grep -q 'URSUS_REBOOT_RETRIES' "$ROOT/src/u-boot/cmd/ursusweb.c"
-grep -q 'UBI_MIGRATION_VERIFIED' "$ROOT/src/u-boot/cmd/ursusweb.c"
+ROOT="$ROOT" python3 - <<'PY'
+import os
+from pathlib import Path
+src=(Path(os.environ["ROOT"])/"src/u-boot/cmd/ursusweb.c").read_text()
+for needle in (
+    "WEB REBOOT: REQUEST received",
+    "WEB REBOOT: HTTP 200 queued",
+    "WEB REBOOT: response timeout action=forced-reset",
+    "WEB REBOOT: invoking reset attempt=",
+    "URSUS_REBOOT_RETRIES",
+    "UBI_MIGRATION_VERIFIED",
+):
+    assert needle in src, needle
+print("Web reboot/post-migration regression guards: PASS")
+PY
 # MAC identity must be refreshed before autoboot on both current Nokia profiles.
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/u-boot.TEST61.full.config"
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/an7583_nokia_xg-040g-mf_MF2_RAM_defconfig"
