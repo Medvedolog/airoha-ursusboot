@@ -125,7 +125,6 @@ release=(root/".github/workflows/release.yml").read_text()
 assert 'test -s "dl/$BOARD/ursusboot-update.fip"' in release
 assert "canonical ursusboot-update.fip" in release
 print("T70 FIP recovery state matrix + canonical repair artifact guards: PASS")
-PYprint("Missing-fip recovery-create guards: PASS")
 PY
 # MAC identity must be refreshed before autoboot on both current Nokia profiles.
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/u-boot.TEST61.full.config"
