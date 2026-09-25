@@ -20,16 +20,24 @@ Vanilla had saved in `ubootenv`/`ubootenv2`. Its `bootcmd` replaced
 Vanilla's autoboot/TFTP recovery (`Autoboot in 3 seconds`, TFTP of the
 initramfs) took over. Mirror image of the t64 Vanilla-with-UrsusBoot-env stop.
 
-- After the environment is loaded and before `preboot`/`bootcmd`
-  (`EVT_LAST_STAGE_INIT`), UrsusBoot checks it: when the build's own default
-  `bootcmd` is `ursusdispatch` and the loaded one is not, the environment is
-  reset to UrsusBoot's defaults and saved (`URSUS_ENV_FOREIGN ...`,
-  `URSUS_ENV_FOREIGN_RESET saved=YES`). Covers every way an UrsusBoot FIP can
-  land in UBI `fip` (UART, WebFailsafe, manual `ubi write`). Boot is never
-  blocked; builds whose default env does not use `ursusdispatch` are unaffected.
-- Local full MD `u-boot.bin` build clean; the spy is linked
-  (`_u_boot_list_2_evspy_info_2_EVT_LAST_STAGE_INIT_3_ursus_env_guard`).
-  **HW PENDING.**
+- Environment ownership: UrsusBoot's default env now carries
+  `ursus_env_rev=72`. From `main_loop()` before `preboot`/`bootcmd` (a direct
+  hook: `CONFIG_EVENT` is off on MF) the loaded env is checked:
+  - same revision: nothing;
+  - no revision and `bootcmd` is not `ursusdispatch`: **FOREIGN** (Vanilla/
+    stock), full reset to UrsusBoot defaults;
+  - UrsusBoot env of another revision (pre-t72 envs have `ursusdispatch` but
+    no revision): **MIGRATE**, reset keeping `rootfs_data_max` (written by the
+    STOCK->UBI migration) and `ethaddr` (stock-layout MAC fallback).
+  The reset is in RAM only (`URSUS_ENV_RESET scope=RAM flash_env=UNCHANGED`):
+  saving at boot would let an UrsusBoot loaded into RAM over UART overwrite
+  Vanilla's own environment; UrsusBoot's own writes persist it.
+- Recovery no longer depends on the environment: if `bootcmd` does not run
+  `ursusdispatch` and Reset is held, `ursusdispatch` is run directly
+  (`URSUS_ENV_BOOTCMD_BYPASS`), so a hand-edited `bootcmd` cannot disable
+  boot-held Reset -> WebFailsafe.
+- Local full `u-boot.bin` builds (OpenWrt gcc 14.4) clean for both the MD and
+  the MF tree; the hook is linked as a strong symbol in both. **HW PENDING.**
 
 ## 0.1.0-alpha5-t71 (branch `test63`)
 

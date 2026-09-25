@@ -21,6 +21,11 @@
 #include <efi_loader.h>
 #include <event.h>
 
+/* UrsusBoot: checks the loaded environment before preboot/bootcmd (cmd/ursusdispatch.c). */
+__weak void ursus_env_guard_hook(void)
+{
+}
+
 static void run_preboot_environment_command(void)
 {
 	char *p;
@@ -50,6 +55,8 @@ void main_loop(void)
 		env_set("ver", version_string);  /* set version variable */
 
 	cli_init();
+
+	ursus_env_guard_hook();
 
 	if (IS_ENABLED(CONFIG_USE_PREBOOT))
 		run_preboot_environment_command();

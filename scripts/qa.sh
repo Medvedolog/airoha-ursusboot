@@ -139,10 +139,16 @@ for needle in (
 assert 'return ret;\n    buf = map_sysmem(URSUS_UBI_READBACK_ADDR, used);' not in upd
 print("T70/T71 FIP recovery state matrix + canonical repair artifact guards: PASS")
 PY
-# t72: a foreign (Vanilla) UBI env must not replace ursusdispatch.
-grep -q 'EVENT_SPY_SIMPLE(EVT_LAST_STAGE_INIT, ursus_env_guard);' "$ROOT/src/u-boot/cmd/ursusdispatch.c"
-grep -q 'URSUS_ENV_FOREIGN bootcmd=' "$ROOT/src/u-boot/cmd/ursusdispatch.c"
-grep -q 'strstr(def, "ursusdispatch")' "$ROOT/src/u-boot/cmd/ursusdispatch.c"
+# t72: env ownership (ursus_env_rev) + Reset recovery independent of bootcmd.
+grep -q 'ursus_env_guard_hook();' "$ROOT/src/u-boot/common/main.c"
+grep -q '__weak void ursus_env_guard_hook(void)' "$ROOT/src/u-boot/common/main.c"
+grep -q '^void ursus_env_guard_hook(void)' "$ROOT/src/u-boot/cmd/ursusdispatch.c"
+grep -q 'URSUS_ENV_BOOTCMD_BYPASS reason=reset-held' "$ROOT/src/u-boot/cmd/ursusdispatch.c"
+grep -q 'scope=RAM flash_env=UNCHANGED' "$ROOT/src/u-boot/cmd/ursusdispatch.c"
+! grep -q 'env_save()' "$ROOT/src/u-boot/cmd/ursusdispatch.c"
+grep -q '"rootfs_data_max",' "$ROOT/src/u-boot/cmd/ursusdispatch.c"
+grep -qx 'ursus_env_rev=72' "$ROOT/src/u-boot/defenvs/an7581_nokia_xg-040g-md_env"
+grep -qx 'ursus_env_rev=72' "$ROOT/config/an7583_nokia_xg-040g-mf_RUNTIME_env"
 # MAC identity must be refreshed before autoboot on both current Nokia profiles.
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/u-boot.TEST61.full.config"
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/an7583_nokia_xg-040g-mf_MF2_RAM_defconfig"

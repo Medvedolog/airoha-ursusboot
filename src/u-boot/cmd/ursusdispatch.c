@@ -2,7 +2,6 @@
 #include <button.h>
 #include <command.h>
 #include <env.h>
-#include <event.h>
 #include <mapmem.h>
 #include <mtd.h>
 #include <time.h>
@@ -187,30 +186,66 @@ U_BOOT_CMD(ursusdispatch, 1, 0, do_ursusdispatch,
            URSUS_PRODUCT_VERSION " boot-held Reset / stock-layout + UBI dispatcher", "");
 
 /*
- * t72: a UBI env written by another bootloader (Vanilla OpenWrt U-Boot, e.g.
- * after UrsusBoot was restored over Vanilla via UART) replaces bootcmd, so
- * ursusdispatch never runs: no boot-held Reset, no WebFailsafe, Vanilla's
- * TFTP recovery instead.  Runs after env load, before preboot/bootcmd.  Only
- * acts when this build's own default env boots through ursusdispatch.
+ * t72: environment ownership.  The UBI env can be written by another boot
+ * loader (Vanilla OpenWrt U-Boot, e.g. after UrsusBoot was restored over
+ * Vanilla via UART): its bootcmd replaced ursusdispatch, so boot-held Reset,
+ * the red LED and WebFailsafe never ran.  Called from main_loop() before
+ * preboot/bootcmd (a direct hook: CONFIG_EVENT is not enabled on every
+ * board).  Only builds whose default env carries ursus_env_rev take part.
+ *
+ * - ursus_env_rev == default: nothing to do.
+ * - no ursus_env_rev and bootcmd is not ursusdispatch: FOREIGN, full reset.
+ * - UrsusBoot env of another revision (or pre-t72 without the variable but
+ *   with ursusdispatch): MIGRATE, reset keeping the whitelist.
+ * The reset is in RAM only.  Saving here would let an UrsusBoot loaded into
+ * RAM over UART overwrite Vanilla's own environment (the t64 problem, the
+ * other way round); UrsusBoot's own writes (migration, updates) persist it.
+ * Boot is never blocked.
  */
-#if CONFIG_IS_ENABLED(EVENT)
-static int ursus_env_guard(void)
-{
-    char def[64];
-    const char *cur = env_get("bootcmd");
-    int ret;
+static const char *const ursus_env_keep[] = {
+    "rootfs_data_max",  /* written by the STOCK->UBI migration */
+    "ethaddr",          /* persisted fallback MAC on the stock layout */
+};
 
-    if (env_get_default_into("bootcmd", def, sizeof(def)) <= 0 ||
-        !strstr(def, "ursusdispatch"))
-        return 0;
-    if (cur && strstr(cur, "ursusdispatch"))
-        return 0;
-    printf("URSUS_ENV_FOREIGN bootcmd=\"%s\" action=RESET_TO_URSUSBOOT_DEFAULT\n",
-           cur ? cur : "<none>");
-    env_set_default("## UrsusBoot: foreign environment replaced by UrsusBoot defaults\n", 0);
-    ret = env_save();
-    printf("URSUS_ENV_FOREIGN_RESET saved=%s\n", ret ? "NO" : "YES");
-    return 0;  /* never block boot: the in-memory env is already UrsusBoot's */
+void ursus_env_guard_hook(void)
+{
+    char def_rev[16], keep[ARRAY_SIZE(ursus_env_keep)][64];
+    const char *cur_rev = env_get("ursus_env_rev");
+    const char *cur_boot = env_get("bootcmd");
+    bool own, button_on = false;
+    struct udevice *button;
+    unsigned int i;
+
+    if (env_get_default_into("ursus_env_rev", def_rev, sizeof(def_rev)) <= 0)
+        return;
+    if (!cur_rev || strcmp(cur_rev, def_rev)) {
+        own = cur_rev || (cur_boot && strstr(cur_boot, "ursusdispatch"));
+        for (i = 0; i < ARRAY_SIZE(ursus_env_keep); i++) {
+            const char *v = own ? env_get(ursus_env_keep[i]) : NULL;
+
+            snprintf(keep[i], sizeof(keep[i]), "%s", v ? v : "");
+        }
+        printf("URSUS_ENV_%s rev=%s want=%s bootcmd=\"%s\" action=RESET_TO_URSUSBOOT_DEFAULT\n",
+               own ? "MIGRATE" : "FOREIGN", cur_rev ? cur_rev : "<none>", def_rev,
+               cur_boot ? cur_boot : "<none>");
+        env_set_default(NULL, 0);
+        for (i = 0; i < ARRAY_SIZE(ursus_env_keep); i++) {
+            if (keep[i][0] && !env_set(ursus_env_keep[i], keep[i]))
+                printf("URSUS_ENV_KEEP %s=%s\n", ursus_env_keep[i], keep[i]);
+        }
+        printf("URSUS_ENV_RESET scope=RAM flash_env=UNCHANGED\n");
+        cur_boot = env_get("bootcmd");
+    }
+
+    /* Recovery must not depend on the environment: a hand-edited bootcmd
+     * without ursusdispatch still gets boot-held Reset -> WebFailsafe. */
+    if (cur_boot && strstr(cur_boot, "ursusdispatch"))
+        return;
+    if (!button_get_by_label("reset", &button))
+        button_on = button_get_state(button) == BUTTON_ON;
+    if (button_on) {
+        printf("URSUS_ENV_BOOTCMD_BYPASS reason=reset-held bootcmd=\"%s\"\n",
+               cur_boot ? cur_boot : "<none>");
+        run_command("ursusdispatch", 0);
+    }
 }
-EVENT_SPY_SIMPLE(EVT_LAST_STAGE_INIT, ursus_env_guard);
-#endif

@@ -3,6 +3,7 @@ serverip=192.168.1.254
 loadaddr=0x90000000
 console=earlycon=uart8250,mmio32,0x11002000 console=ttyS0
 bootcmd=ursusdispatch
+ursus_env_rev=72
 bootconf=config-1
 bootdelay=0
 bootfile=openwrt-airoha-an7581-nokia_xg-040g-md-ubi-initramfs-recovery.itb
