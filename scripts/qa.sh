@@ -12,7 +12,7 @@ for rel,want in checks.items():
 f=(r/'reference/md/ursusboot-test61-update.fip').read_bytes(); assert len(f)==503808 and f[:4]==b'\x01\x00\x64\xaa'
 reg=json.loads((r/'config/board-profiles.json').read_text())
 for name,p in reg['profiles'].items():
- for field,base in (('config','config'),('boot_area_template',''),('reference_fip','')):
+ for field,base in (('config','config'),('boot_area_template',''),('reference_fip',''),('persistent_fip_donor','')):
   if field not in p: raise SystemExit(f'profile {name}: missing {field}')
   v=p[field]
   if v is not None:
@@ -78,26 +78,54 @@ assert "if(r.status===404)t=" in ui
 print("Web reboot/post-migration regression guards: PASS")
 PY
 ROOT="$ROOT" python3 - <<'PY'
-import os
+import os, json
 from pathlib import Path
 root=Path(os.environ["ROOT"])
 upd=(root/"src/u-boot/cmd/ursusupdate.c").read_text()
 web=(root/"src/u-boot/cmd/ursusweb.c").read_text()
 ui=(root/"src/u-boot/include/ursusweb_ui.inc").read_text()
 for needle in (
-    "ubi_repair_create",
+    "URSUS_UBI_FIP_NORMAL",
+    "URSUS_UBI_FIP_REPAIR_MISSING",
+    "URSUS_UBI_FIP_REPAIR_INVALID",
+    "ursus_ubi_classify_active_fip",
     "URSUS_UPDATE_RECOVERY_CREATE",
+    "URSUS_UPDATE_RECOVERY_REPLACE",
     'run_command("ubi rename fip.new fip", 0)',
+    'ursus_ubi_atomic_switch("fip", "fip.new", "fip.bad")',
+    'ursus_ubi_atomic_switch("fip", "fip.bad", "fip.new")',
     "RECOVERY_FIP_POSTCOMMIT_VERIFY_FAILED",
+    "RECOVERY_INVALID_FIP_PROMOTE_FAILED",
+    "RECOVERY_INVALID_FIP_ROLLBACK_FAILED",
     "preserve=fip.old",
+    "quarantine=fip.bad",
 ):
     assert needle in upd, needle
-assert 'if (run_command("ubi check fip", 0))\n        return -ENOENT;' not in upd
+assert "ubi_repair_create" not in upd
+assert "ursus_up.ubi_fip_mode == URSUS_UBI_FIP_NORMAL &&" in upd
+assert 'ursus_ubi_atomic_switch("fip", "fip.new", "fip.old")' in upd
+assert "UBI_ACTIVE_FIP_MISSING" in upd and "UBI_ACTIVE_FIP_INVALID" in upd
 assert "BOOTLOADER_REPAIR_REQUIRED" in web
 assert "restore UrsusBoot first" in web
-assert "recovery create" in ui
+assert "(!S.fip_present||!S.fip_valid)" in ui
+assert "fip -> fip.bad" in ui and "fip.old preserved" in ui
 assert "Restore UrsusBoot" in ui
-print("Missing-fip recovery-create guards: PASS")
+build=(root/"build.sh").read_text()
+profiles=json.loads((root/"config/board-profiles.json").read_text())
+assert profiles["profiles"]["xg040-md"]["persistent_fip_donor"]
+assert profiles["profiles"]["xg040-mf"]["persistent_fip_donor"]
+for needle in (
+    'PERSISTENT_REF_NAME="$(jget persistent_fip_donor)"',
+    '--output "$OUT/ursusboot-update.fip"',
+    '"MF-PERSISTENT-FIP-REPACK.json"',
+    "MF_PERSISTENT_REPAIR_FIP_QA=PASS",
+):
+    assert needle in build, needle
+release=(root/".github/workflows/release.yml").read_text()
+assert 'test -s "dl/$BOARD/ursusboot-update.fip"' in release
+assert "canonical ursusboot-update.fip" in release
+print("T70 FIP recovery state matrix + canonical repair artifact guards: PASS")
+PYprint("Missing-fip recovery-create guards: PASS")
 PY
 # MAC identity must be refreshed before autoboot on both current Nokia profiles.
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/u-boot.TEST61.full.config"

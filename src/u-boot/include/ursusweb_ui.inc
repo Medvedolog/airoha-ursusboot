@@ -771,7 +771,7 @@ static const char ursus_root_body[] =
 "layout==='OPENWRT_UBI')?(L==='ru'?'fip.new \342\206\222 atomic promote \342\206\222 fip.old':'fi"
 "p.new \342\206\222 atomic promote \342\206\222 fip.old'):((S.current_layout==='STOCK')?(L==='ru'"
 "?'single-copy \302\267 prefix/env preserved':'single-copy \302\267 prefix/env preserved'):'\342"
-"\200\224');let repairFip=S.current_layout==='OPENWRT_UBI'&&S.ubi_attached&&!S.fip_present;if(repairFip){$('fippolicy').textContent=L==='ru'?'fip.new -> fip · recovery create':'fip.new -> fip · recovery create';$('updateUrsusBoot').textContent=L==='ru'?'Восстановить UrsusBoot':'Restore UrsusBoot'}else $('updateUrsusBoot').textContent=L==='ru'?'Обновить UrsusBoot':'Update UrsusBoot';$('updateUrsusBoot').disabled=!S.ursus_fip_valid||opActive;if(S.ursus_fip_valid&&!FIP"
+"\200\224');let repairFip=S.current_layout==='OPENWRT_UBI'&&S.ubi_attached&&(!S.fip_present||!S.fip_valid);if(repairFip){$('fippolicy').textContent=!S.fip_present?'fip.new -> fip · recovery create':'fip -> fip.bad · fip.new -> fip · fip.old preserved';$('updateUrsusBoot').textContent=L==='ru'?'Восстановить UrsusBoot':'Restore UrsusBoot'}else $('updateUrsusBoot').textContent=L==='ru'?'Обновить UrsusBoot':'Update UrsusBoot';$('updateUrsusBoot').disabled=!S.ursus_fip_valid||opActive;if(S.ursus_fip_valid&&!FIP"
 "){$('fipname').textContent=S.ursus_fip_filename||'ursusboot.fip';if($('fipresult').classList.con"
 "tains('hidden'))result($('fipresult'),'ok',L==='ru'?'UrsusBoot FIP \320\277\321\200\320\276\320"
 "\262\320\265\321\200\320\265\320\275':'UrsusBoot FIP validated',L==='ru'?'\320\232\320\260\320"

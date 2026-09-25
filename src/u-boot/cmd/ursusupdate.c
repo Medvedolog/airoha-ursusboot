@@ -96,6 +96,12 @@ enum ursus_update_stage {
     URSUS_UP_FAILED,
 };
 
+enum ursus_ubi_fip_mode {
+    URSUS_UBI_FIP_NORMAL = 0,
+    URSUS_UBI_FIP_REPAIR_MISSING,
+    URSUS_UBI_FIP_REPAIR_INVALID,
+};
+
 struct ursus_update_ctx {
     enum ursus_fip_kind kind;
     enum ursus_update_stage stage;
@@ -108,7 +114,7 @@ struct ursus_update_ctx {
     bool announced;
     ulong announced_at;
     bool ubi_layout;
-    bool ubi_repair_create;
+    enum ursus_ubi_fip_mode ubi_fip_mode;
     bool commit_started;
     bool write_started;
     char error_code[48];
@@ -619,6 +625,59 @@ static int ursus_detect_ubi_layout(bool *is_ubi)
     return 0;
 }
 
+static const char *ursus_ubi_fip_mode_name(enum ursus_ubi_fip_mode mode)
+{
+    switch (mode) {
+    case URSUS_UBI_FIP_REPAIR_MISSING: return "repair-missing";
+    case URSUS_UBI_FIP_REPAIR_INVALID: return "repair-invalid";
+    default: return "normal";
+    }
+}
+
+static int ursus_ubi_classify_active_fip(enum ursus_ubi_fip_mode *mode)
+{
+    struct ubi_volume_desc *desc;
+    const u8 *buf;
+    size_t declared_end = 0;
+    unsigned long used;
+    int ret;
+
+    if (!mode)
+        return -EINVAL;
+    *mode = URSUS_UBI_FIP_NORMAL;
+    if (run_command("ubi check fip", 0)) {
+        *mode = URSUS_UBI_FIP_REPAIR_MISSING;
+        printf("URSUS_UPDATE_ACTIVE_FIP state=MISSING\n");
+        return 0;
+    }
+    desc = ubi_open_volume_nm(0, "fip", UBI_READONLY);
+    if (IS_ERR(desc))
+        return PTR_ERR(desc);
+    used = (unsigned long)desc->vol->used_bytes;
+    ubi_close_volume(desc);
+    if (!used || used > URSUS_UBI_FIP_VOL_SIZE) {
+        *mode = URSUS_UBI_FIP_REPAIR_INVALID;
+        printf("URSUS_UPDATE_ACTIVE_FIP state=INVALID reason=size bytes=%lu\n", used);
+        return 0;
+    }
+    ret = run_commandf("ubi read 0x%08lx fip 0x%lx", URSUS_UBI_READBACK_ADDR, used);
+    if (ret)
+        return ret;
+    buf = map_sysmem(URSUS_UBI_READBACK_ADDR, used);
+    if (!buf)
+        return -ENOMEM;
+    ret = ursus_fip_validate_current(buf, used, &declared_end);
+    unmap_sysmem(buf);
+    if (ret || declared_end != used) {
+        *mode = URSUS_UBI_FIP_REPAIR_INVALID;
+        printf("URSUS_UPDATE_ACTIVE_FIP state=INVALID reason=validation ret=%d declared=%u used=%lu\n",
+               ret, (unsigned int)declared_end, used);
+        return 0;
+    }
+    printf("URSUS_UPDATE_ACTIVE_FIP state=VALID bytes=%lu\n", used);
+    return 0;
+}
+
 static int ursus_ubi_atomic_switch(const char *current, const char *candidate,
                                    const char *backup)
 {
@@ -724,12 +783,25 @@ static const char *ursus_update_detail_text(enum ursus_update_stage s)
     case URSUS_UP_STOCK_WRITE: return "Write preserved stock bootloader candidate with new UrsusBoot FIP";
     case URSUS_UP_STOCK_VERIFY: return "Read back and compare complete 512 KiB stock bootloader span";
     case URSUS_UP_UBI_ATTACH: return "Attach native UBI";
-    case URSUS_UP_UBI_STAGE_PREP: return "Create fip.new while current fip remains bootable";
+    case URSUS_UP_UBI_STAGE_PREP:
+        return ursus_up.ubi_fip_mode == URSUS_UBI_FIP_REPAIR_MISSING ?
+            "Create fip.new; active fip is missing; preserve fip.old" :
+            ursus_up.ubi_fip_mode == URSUS_UBI_FIP_REPAIR_INVALID ?
+            "Create fip.new; preserve fip.old and quarantine invalid fip" :
+            "Create fip.new while current fip remains bootable";
     case URSUS_UP_UBI_STAGE_WRITE: return "Write fip.new";
     case URSUS_UP_UBI_STAGE_VERIFY: return "Read back and validate fip.new";
-    case URSUS_UP_UBI_PROMOTE: return "Atomically rename fip to fip.old and fip.new to fip";
+    case URSUS_UP_UBI_PROMOTE:
+        return ursus_up.ubi_fip_mode == URSUS_UBI_FIP_REPAIR_MISSING ?
+            "Promote fip.new to missing fip; preserve fip.old" :
+            ursus_up.ubi_fip_mode == URSUS_UBI_FIP_REPAIR_INVALID ?
+            "Atomically quarantine invalid fip as fip.bad and promote fip.new" :
+            "Atomically rename fip to fip.old and fip.new to fip";
     case URSUS_UP_UBI_VERIFY: return "Verify promoted fip";
-    case URSUS_UP_UBI_ROLLBACK: return "Rollback promoted fip to previous fip.old";
+    case URSUS_UP_UBI_ROLLBACK:
+        return ursus_up.ubi_fip_mode == URSUS_UBI_FIP_REPAIR_INVALID ?
+            "Restore quarantined invalid fip; keep fip.old untouched" :
+            "Rollback promoted fip to previous fip.old";
     case URSUS_UP_COMPLETE: return ursus_up.kind == URSUS_FIP_KIND_VANILLA ?
         "Vanilla U-Boot is in fip (UrsusBoot kept as fip.old); reboot is operator-controlled" :
         "UrsusBoot update complete; reboot is operator-controlled";
@@ -818,7 +890,7 @@ static int ursus_fip_update_start_kind(ulong addr, size_t len, enum ursus_fip_ki
     if (!is_ubi)
         printf("URSUS_UPDATE_STOCK_POWERLOSS_RISK=1 reason=single-copy-bootloader\n");
     else
-        printf("URSUS_UPDATE_UBI_TRANSACTION=fip.new->atomic-promote-fip.old\n");
+        printf("URSUS_UPDATE_UBI_TRANSACTION=stage-fip.new classify-active-after-attach\n");
     return 0;
 }
 
@@ -942,12 +1014,19 @@ int ursus_fip_update_step(void)
         ret = ursus_update_ensure_ubi_attachment();
         if (ret) return ursus_update_fail_reason(ret,
             ret == -EXDEV ? "UBI_ATTACHMENT_MISMATCH" : "UBI_ATTACH_FAILED");
-        if (run_command("ubi check fip", 0)) {
-            if (ursus_up.kind != URSUS_FIP_KIND_URSUS)
-                return ursus_update_fail_reason(-ENOENT, "UBI_ACTIVE_FIP_MISSING");
-            ursus_up.ubi_repair_create = true;
+        ret = ursus_ubi_classify_active_fip(&ursus_up.ubi_fip_mode);
+        if (ret)
+            return ursus_update_fail_reason(ret, "UBI_ACTIVE_FIP_CLASSIFY_FAILED");
+        if (ursus_up.ubi_fip_mode != URSUS_UBI_FIP_NORMAL &&
+            ursus_up.kind != URSUS_FIP_KIND_URSUS)
+            return ursus_update_fail_reason(
+                ursus_up.ubi_fip_mode == URSUS_UBI_FIP_REPAIR_MISSING ? -ENOENT : -EBADMSG,
+                ursus_up.ubi_fip_mode == URSUS_UBI_FIP_REPAIR_MISSING ?
+                    "UBI_ACTIVE_FIP_MISSING" : "UBI_ACTIVE_FIP_INVALID");
+        if (ursus_up.ubi_fip_mode == URSUS_UBI_FIP_REPAIR_MISSING)
             printf("URSUS_UPDATE_RECOVERY_CREATE reason=active-fip-missing candidate=validated-ursusboot preserve=fip.old\n");
-        }
+        else if (ursus_up.ubi_fip_mode == URSUS_UBI_FIP_REPAIR_INVALID)
+            printf("URSUS_UPDATE_RECOVERY_REPLACE reason=active-fip-invalid candidate=validated-ursusboot preserve=fip.old quarantine=fip.bad\n");
         ursus_up.last_success_stage = URSUS_UP_UBI_ATTACH;
         ursus_up.stage = URSUS_UP_UBI_STAGE_PREP;
         break;
@@ -956,14 +1035,17 @@ int ursus_fip_update_step(void)
         ursus_up.write_started = true;
         if (!run_command("ubi check fip.new", 0))
             run_command("ubi remove fip.new", 0);
-        if (!ursus_up.ubi_repair_create && !run_command("ubi check fip.old", 0))
+        if (ursus_up.ubi_fip_mode == URSUS_UBI_FIP_NORMAL &&
+            !run_command("ubi check fip.old", 0))
             run_command("ubi remove fip.old", 0);
         if (!run_command("ubi check fip.bad", 0))
             run_command("ubi remove fip.bad", 0);
         ret = run_command("ubi create fip.new 0x100000 static", 0);
         if (ret) return ursus_update_fail(ret);
-        printf("URSUS_UPDATE_STAGE_READY layout=UBI volume=fip.new current=%s\n",
-               ursus_up.ubi_repair_create ? "fip-missing-recovery-create" : "fip-intact");
+        printf("URSUS_UPDATE_STAGE_READY layout=UBI volume=fip.new mode=%s backup=%s\n",
+               ursus_ubi_fip_mode_name(ursus_up.ubi_fip_mode),
+               ursus_up.ubi_fip_mode == URSUS_UBI_FIP_NORMAL ?
+                   "rotate-fip.old" : "preserve-fip.old");
         ursus_up.last_success_stage = URSUS_UP_UBI_STAGE_PREP;
         ursus_up.stage = URSUS_UP_UBI_STAGE_WRITE;
         break;
@@ -998,11 +1080,17 @@ int ursus_fip_update_step(void)
 
     case URSUS_UP_UBI_PROMOTE:
         ursus_up.commit_started = true;
-        if (ursus_up.ubi_repair_create) {
+        if (ursus_up.ubi_fip_mode == URSUS_UBI_FIP_REPAIR_MISSING) {
             printf("URSUS_UPDATE_COMMIT_BEGIN layout=UBI recovery=create-fip source=fip.new backup=preserved-if-present\n");
             ret = run_command("ubi rename fip.new fip", 0);
             if (ret) return ursus_update_fail_reason(ret, "RECOVERY_FIP_RENAME_FAILED");
             printf("URSUS_UPDATE_PROMOTE_OK layout=UBI recovery=create-fip backup=preserved-if-present\n");
+        } else if (ursus_up.ubi_fip_mode == URSUS_UBI_FIP_REPAIR_INVALID) {
+            printf("URSUS_UPDATE_COMMIT_BEGIN layout=UBI recovery=replace-invalid atomic=fip->fip.bad,fip.new->fip backup=fip.old-preserved\n");
+            ret = ursus_ubi_atomic_switch("fip", "fip.new", "fip.bad");
+            if (ret)
+                return ursus_update_fail_reason(ret, "RECOVERY_INVALID_FIP_PROMOTE_FAILED");
+            printf("URSUS_UPDATE_PROMOTE_OK layout=UBI recovery=replace-invalid quarantine=fip.bad backup=fip.old-preserved\n");
         } else {
             printf("URSUS_UPDATE_COMMIT_BEGIN layout=UBI atomic=fip->fip.old,fip.new->fip\n");
             ret = ursus_ubi_atomic_switch("fip", "fip.new", "fip.old");
@@ -1018,11 +1106,12 @@ int ursus_fip_update_step(void)
         if (!ret)
             ret = ursus_fip_validate_kind(URSUS_UBI_READBACK_ADDR, ursus_up.len, false, ursus_up.kind);
         if (ret) {
-            if (ursus_up.ubi_repair_create) {
+            if (ursus_up.ubi_fip_mode == URSUS_UBI_FIP_REPAIR_MISSING) {
                 printf("URSUS_UPDATE_POSTCOMMIT_VERIFY_FAIL ret=%d action=NONE reason=no-active-fip-backup\n", ret);
                 return ursus_update_fail_reason(ret, "RECOVERY_FIP_POSTCOMMIT_VERIFY_FAILED");
             }
-            printf("URSUS_UPDATE_POSTCOMMIT_VERIFY_FAIL ret=%d action=ROLLBACK\n", ret);
+            printf("URSUS_UPDATE_POSTCOMMIT_VERIFY_FAIL ret=%d action=ROLLBACK mode=%s\n",
+                   ret, ursus_ubi_fip_mode_name(ursus_up.ubi_fip_mode));
             ursus_up.last_success_stage = URSUS_UP_UBI_VERIFY;
             ursus_up.stage = URSUS_UP_UBI_ROLLBACK;
             break;
@@ -1037,20 +1126,31 @@ int ursus_fip_update_step(void)
         }
         ursus_up.stage = URSUS_UP_COMPLETE;
         ursus_up.active = false;
-        printf("URSUS_UPDATE_COMMIT_OK layout=UBI kind=%s recovery_create=%u backup=%s reboot=MANUAL\n",
-               ursus_fip_kind_name(ursus_up.kind), ursus_up.ubi_repair_create ? 1U : 0U,
-               ursus_up.ubi_repair_create ? "preserved-if-present" : "fip.old");
+        printf("URSUS_UPDATE_COMMIT_OK layout=UBI kind=%s mode=%s backup=%s reboot=MANUAL\n",
+               ursus_fip_kind_name(ursus_up.kind),
+               ursus_ubi_fip_mode_name(ursus_up.ubi_fip_mode),
+               ursus_up.ubi_fip_mode == URSUS_UBI_FIP_NORMAL ?
+                   "fip.old" : "fip.old-preserved");
         if (ursus_up.kind == URSUS_FIP_KIND_VANILLA)
             printf("URSUS_VANILLA_REPLACE_COMPLETE fip=VANILLA fip.old=URSUSBOOT env=RESET next_boot=VANILLA_UBOOT\n");
         return 1;
 
     case URSUS_UP_UBI_ROLLBACK:
+        if (ursus_up.ubi_fip_mode == URSUS_UBI_FIP_REPAIR_INVALID) {
+            ret = ursus_ubi_atomic_switch("fip", "fip.bad", "fip.new");
+            if (ret)
+                return ursus_update_fail_reason(ret, "RECOVERY_INVALID_FIP_ROLLBACK_FAILED");
+            printf("URSUS_UPDATE_ROLLBACK_OK mode=repair-invalid restored=fip failed=fip.new backup=fip.old-preserved\n");
+            return ursus_update_fail(-EBADMSG);
+        }
+        if (ursus_up.ubi_fip_mode == URSUS_UBI_FIP_REPAIR_MISSING)
+            return ursus_update_fail_reason(-EINVAL, "RECOVERY_MISSING_FIP_ROLLBACK_UNREACHABLE");
         if (!run_command("ubi check fip.bad", 0))
             run_command("ubi remove fip.bad", 0);
         ret = ursus_ubi_atomic_switch("fip", "fip.old", "fip.bad");
         if (ret)
             return ursus_update_fail(ret);
-        printf("URSUS_UPDATE_ROLLBACK_OK restored=fip failed=fip.bad\n");
+        printf("URSUS_UPDATE_ROLLBACK_OK mode=normal restored=fip failed=fip.bad\n");
         return ursus_update_fail(-EBADMSG);
 
     default:

@@ -38,7 +38,18 @@ def main() -> None:
     if info.get("UBI_PRELOADER_SHA256") != hashlib.sha256(pre).hexdigest():
         raise SystemExit("BUILD-INFO pin does not match the packaged preloader")
     vanilla = (out / "vanilla-u-boot.fip").read_bytes()
+    update_fip = out / "ursusboot-update.fip"
+    if not update_fip.is_file():
+        raise SystemExit("canonical ursusboot-update.fip is missing from dist")
+    if info.get("URSUSBOOT_UPDATE_FIP_SHA256") != sha(update_fip):
+        raise SystemExit("BUILD-INFO repair FIP digest does not match the packaged ursusboot-update.fip")
     rs = json.loads((out / "RECOVERY-SAFE-FIP-REPACK.json").read_text())
+    persistent_report_path = out / "MF-PERSISTENT-FIP-REPACK.json"
+    persistent = json.loads(persistent_report_path.read_text()) if persistent_report_path.is_file() else None
+    if persistent is not None:
+        if persistent.get("output_sha256") != sha(update_fip) or persistent.get("bl31_byte_exact") is not True \
+                or persistent.get("mf2_bl33_roundtrip") is not True or persistent.get("mf2_bl33_lzma_eopm") is not False:
+            raise SystemExit("MF persistent repair FIP report does not match the packaged ursusboot-update.fip")
     if rs.get("output_sha256") != sha(out / "recovery-safe-u-boot.fip") or rs.get("bl31_byte_exact") is not True \
             or rs.get("mf2_bl33_roundtrip") is not True or rs.get("mf2_bl33_lzma_eopm") is not False:
         raise SystemExit("RECOVERY_SAFE FIP report does not match the packaged FIP")
@@ -62,6 +73,10 @@ def main() -> None:
         "ubi_bl2_image_sha256": hashlib.sha256(cand).hexdigest(),
         "vanilla_fip_sha256": hashlib.sha256(vanilla).hexdigest(),
         "vanilla_uboot_variant": a.uboot_variant,
+        "ursusboot_update_fip_sha256": sha(update_fip),
+        "ursusboot_update_fip_size": update_fip.stat().st_size,
+        "persistent_fip_donor_sha256": info.get("PERSISTENT_REPAIR_DONOR_SHA256",
+                                                  info.get("DONOR_FIP_SHA256")),
         # BootROM/UART RAM recovery (RC18 RECOVERY_SAFE contract, Fudan-capable).
         "recovery_safe_fip_sha256": sha(out / "recovery-safe-u-boot.fip"),
         "recovery_safe_fip_size": (out / "recovery-safe-u-boot.fip").stat().st_size,
@@ -71,6 +86,12 @@ def main() -> None:
         "files": {p.name: sha(p) for p in sorted(out.iterdir()) if p.is_file() and p.name != "PROVENANCE.json"},
         "hw_status": "HW_PENDING",
     }
+    if persistent is not None:
+        prov.update({
+            "persistent_fip_bl31_sha256": persistent["bl31_compressed_sha256"],
+            "persistent_fip_bl33_sha256": persistent["mf2_bl33_compressed_sha256"],
+            "persistent_fip_bl33_raw_sha256": persistent["mf2_bl33_raw_sha256"],
+        })
     if dirty:
         raise SystemExit("refusing to write release provenance for a dirty working tree")
     (out / "PROVENANCE.json").write_text(json.dumps(prov, indent=2) + "\n")

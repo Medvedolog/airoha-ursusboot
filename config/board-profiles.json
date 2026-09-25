@@ -71,7 +71,8 @@
       ],
       "openwrt_device": "nokia_xg-040g-md-ubi",
       "uboot_variant": "an7581_nokia_xg-040g-md",
-      "recovery_safe_donor": "reference/md/rc18-md-recovery-safe-bl31-uboot-ethfix.fip"
+      "recovery_safe_donor": "reference/md/rc18-md-recovery-safe-bl31-uboot-ethfix.fip",
+      "persistent_fip_donor": "reference/md/ursusboot-test61-update.fip"
     },
     "xg040-mf": {
       "vendor": "Nokia",
@@ -163,7 +164,8 @@
       ],
       "openwrt_device": "nokia_xg-040g-mf-ubi",
       "uboot_variant": "an7583_nokia_xg-040g-mf",
-      "recovery_safe_donor": "reference/mf/medve-rc35-mf-recovery-safe-bl31-uboot.fip"
+      "recovery_safe_donor": "reference/mf/medve-rc35-mf-recovery-safe-bl31-uboot.fip",
+      "persistent_fip_donor": "reference/mf/medve-rc35-mf-recovery-safe-bl31-uboot.fip"
     },
     "xg140-md": {
       "vendor": "Bell/Nokia",
@@ -192,7 +194,8 @@
       "packaging": null,
       "preloader_pin_base": null,
       "source_transforms": [],
-      "openwrt_device": null
+      "openwrt_device": null,
+      "persistent_fip_donor": null
     }
   }
 }

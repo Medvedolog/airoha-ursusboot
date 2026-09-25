@@ -69,6 +69,7 @@ jobs:
           mkdir -p assets
           for BOARD in xg040-md xg040-mf; do
             gh run download "$BUILD_RUN" -R "$GITHUB_REPOSITORY" -n "ursusboot-$BOARD-$SHA" -D "dl/$BOARD"
+            test -s "dl/$BOARD/ursusboot-update.fip"
             # SHA256SUMS carries the builder's absolute paths; check by file name.
             while read -r SUM FILE; do
               echo "$SUM  dl/$BOARD/$(basename "$FILE")"
@@ -79,6 +80,8 @@ jobs:
           flat = json.dumps(p)
           assert sys.argv[2] in flat, "PROVENANCE.json does not name the build commit"
           assert sys.argv[3] in flat, "PROVENANCE.json does not name VERSION"
+          assert p.get("files", {}).get("ursusboot-update.fip") == p.get("ursusboot_update_fip_sha256"), \
+              "PROVENANCE.json does not bind canonical ursusboot-update.fip"
           PY
             (cd dl && zip -qr "../assets/ursusboot-$VERSION-$BOARD.zip" "$BOARD")
           done

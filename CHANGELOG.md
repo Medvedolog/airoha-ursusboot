@@ -11,6 +11,28 @@ Evidence labels used here:
 
 **QA PASS and BUILD PASS are not HW PASS.**
 
+## 0.1.0-alpha5-t70 (branch `test63`)
+
+T70 closes the second half of the UBI boot-FIP repair state machine and makes
+the release payload contract symmetric between MD and MF.
+
+- UBI self-update classifies active `fip` as **valid**, **missing** or
+  **invalid** after attach. Missing/invalid repair is UrsusBoot-only; Vanilla
+  replacement still fails closed unless active `fip` is healthy.
+- Missing `fip`: T69 recovery-create is retained and `fip.old` is preserved.
+- Invalid-but-present `fip`: `fip.old` is never removed or overwritten.
+  Atomic rename quarantines invalid active `fip` as `fip.bad` and promotes
+  validated `fip.new`; final-verify rollback restores the pre-operation active
+  state while keeping `fip.old` untouched.
+- WebFailsafe labels both missing and invalid states **Restore UrsusBoot**.
+- Every buildable board declares `persistent_fip_donor`. MF now emits the
+  canonical persistent-repair `ursusboot-update.fip` in addition to the
+  BootROM/UART `ursusboot-runtime-ram.fip`; build checks BL31 preservation,
+  BL33 round-trip and equality to `u-boot.runtime.lzma`.
+- BUILD-INFO, SHA256SUMS, PROVENANCE and Release require/bind
+  `ursusboot-update.fip` for both MD and MF.
+- **SOURCE only until exact QA/build completes; HW PENDING.**
+
 ## 0.1.0-alpha5-t69 (branch `test63`)
 
 Narrow recovery fix for an OpenWrt UBI layout where WebFailsafe is running but

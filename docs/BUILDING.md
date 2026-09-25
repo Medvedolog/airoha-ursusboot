@@ -181,3 +181,12 @@ A QA PASS does not prove compilation and does not prove hardware behavior.
 ## Reproducibility notes
 
 The repository keeps source/config/template/donor inputs locally. The external OpenWrt toolchain still matters: compiler version and SDK snapshot can change the output. For a release-quality build, record the exact toolchain archive and SHA256 alongside the artifact hashes.
+
+
+## MF persistent repair FIP (T70)
+
+The MF build emits both `ursusboot-runtime-ram.fip` (BootROM/UART RAM role) and
+`ursusboot-update.fip` (canonical persistent flash/UBI repair role). The latter
+uses the profile's explicit `persistent_fip_donor`; build QA proves BL31 is
+preserved and its compressed BL33 equals `u-boot.runtime.lzma` and round-trips
+to the current `u-boot.bin`.

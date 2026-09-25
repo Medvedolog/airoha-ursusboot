@@ -281,6 +281,10 @@ mf-runtime)
     [ -n "$REF" ] && [ -f "$REF" ] || { echo "board $BOARD: MF donor FIP not found: ${REF:-<none>}" >&2; exit 5; }
     UART_PRELOADER="$ROOT/$(jget uart_preloader)"
     [ -f "$UART_PRELOADER" ] || { echo "board $BOARD: UART preloader not found: $UART_PRELOADER" >&2; exit 5; }
+    PERSISTENT_REF_NAME="$(jget persistent_fip_donor)"
+    [ -n "$PERSISTENT_REF_NAME" ] || { echo "board $BOARD: persistent_fip_donor is not declared" >&2; exit 5; }
+    PERSISTENT_REF="$ROOT/$PERSISTENT_REF_NAME"
+    [ -f "$PERSISTENT_REF" ] || { echo "board $BOARD: persistent repair FIP donor not found: $PERSISTENT_REF" >&2; exit 5; }
     python3 "$ROOT/scripts/mf/mf2_repack_from_medve.py" \
         --medve-patcher "$ROOT/scripts/mf/medve/patch_recovery_safe_fip.py" \
         --source "$REF" \
@@ -304,8 +308,35 @@ if raw != (out / "u-boot.bin").read_bytes():
     raise SystemExit("u-boot.runtime.lzma does not decompress to u-boot.bin")
 print("MF_RUNTIME_FIP_QA=PASS sha256=" + r["output_sha256"])
 PY
+    # Canonical persistent flash/UBI repair FIP. It has a distinct public role
+    # from the UART RAM FIP even when today's proven donor makes the bytes equal.
+    python3 "$ROOT/scripts/mf/mf2_repack_from_medve.py" \
+        --medve-patcher "$ROOT/scripts/mf/medve/patch_recovery_safe_fip.py" \
+        --source "$PERSISTENT_REF" \
+        --bl33-raw "$OUT/u-boot.bin" \
+        --bl33-output "$WORK/u-boot.update.lzma" \
+        --output "$OUT/ursusboot-update.fip" \
+        --report "$OUT/MF-PERSISTENT-FIP-REPACK.json"
+    python3 - "$OUT" "$WORK/u-boot.update.lzma" <<'PY'
+import json, lzma, sys
+from pathlib import Path
+out, update_lzma = Path(sys.argv[1]), Path(sys.argv[2])
+r = json.loads((out / "MF-PERSISTENT-FIP-REPACK.json").read_text(encoding="ascii"))
+for k in ("bl31_byte_exact", "mf2_bl33_roundtrip", "mf2_bl33_lzma_known_size",
+          "serial_preserved", "flags_preserved", "uuid_flags_preserved"):
+    if r.get(k) is not True:
+        raise SystemExit(f"MF persistent repair FIP QA failed: {k}={r.get(k)}")
+if r.get("entry_count") != 2 or r.get("mf2_bl33_lzma_eopm") is not False:
+    raise SystemExit("MF persistent repair FIP QA failed: entry_count/eopm")
+if update_lzma.read_bytes() != (out / "u-boot.runtime.lzma").read_bytes():
+    raise SystemExit("MF persistent repair BL33 differs from runtime BL33")
+raw = lzma.decompress(update_lzma.read_bytes(), format=lzma.FORMAT_ALONE)
+if raw != (out / "u-boot.bin").read_bytes():
+    raise SystemExit("MF persistent repair BL33 does not decompress to u-boot.bin")
+print("MF_PERSISTENT_REPAIR_FIP_QA=PASS sha256=" + r["output_sha256"])
+PY
     cp "$UART_PRELOADER" "$OUT/ursusboot-uart-preloader.bin"
-    sum_files+=("$OUT/u-boot.runtime.lzma" "$OUT/ursusboot-runtime-ram.fip" "$OUT/ursusboot-uart-preloader.bin")
+    sum_files+=("$OUT/u-boot.runtime.lzma" "$OUT/ursusboot-runtime-ram.fip" "$OUT/ursusboot-update.fip" "$OUT/ursusboot-uart-preloader.bin")
     ;;
 "")
     echo "board $BOARD: no packaging declared; raw u-boot.bin only" >&2
@@ -324,6 +355,9 @@ esac
     echo "BUILD_COMMIT=$BUILD_COMMIT"
     echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
     [ -n "$REF" ] && echo "DONOR_FIP_SHA256=$(sha256sum "$REF" | cut -d' ' -f1)"
+    PERSISTENT_REF_NAME="$(jget persistent_fip_donor)"
+    [ -n "$PERSISTENT_REF_NAME" ] && echo "PERSISTENT_REPAIR_DONOR_SHA256=$(sha256sum "$ROOT/$PERSISTENT_REF_NAME" | cut -d' ' -f1)"
+    [ -f "$OUT/ursusboot-update.fip" ] && echo "URSUSBOOT_UPDATE_FIP_SHA256=$(sha256sum "$OUT/ursusboot-update.fip" | cut -d' ' -f1)"
     if [ -n "${URSUS_UBI_PRELOADER:-}" ]; then
         grep '^UBI_' "$WORK/ubi-preloader-pin.txt"
     else
