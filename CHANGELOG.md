@@ -11,6 +11,23 @@ Evidence labels used here:
 
 **QA PASS and BUILD PASS are not HW PASS.**
 
+## 0.1.0-alpha5-t68 (branch `test63`)
+
+WebFailsafe diagnostics after a completed STOCK->UBI migration (XG-040G-MF/t67
+HW report: migration verified, OpenWrt booted after **Reboot into OpenWrt**, but
+the Diagnostics panel showed `Boot FIP ✕ fip volume missing`, `OpenWrt system
+image ✕ fit volume missing` and `UBI ✕ not attached`).
+
+- t67 fixed only the *Last validation* row (`UBI_MIGRATION_VERIFIED`). The FIP,
+  OpenWrt image and UBI rows still read the diagnostic UBI attach, which the
+  migration backend leaves detached. With `UBI_MIGRATION_VERIFIED` and UBI
+  detached they now read *Verified by the migration* / *Detached after
+  verification*; a fresh boot still shows real missing volumes and attach errors.
+- After the reboot the open tab kept polling `/api/log` and printed OpenWrt
+  uhttpd's `404 Not Found`. A 404 there now says the router no longer answers as
+  UrsusBoot and has probably rebooted into OpenWrt.
+- UrsusBoot boot/update logic is unchanged from t67. HW PENDING.
+
 ## 0.1.0-alpha5-t67 (branch `test63`)
 
 Corrective WebFailsafe release after a real XG-040G-MF/t66 STOCK->UBI run where

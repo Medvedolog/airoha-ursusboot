@@ -71,6 +71,10 @@ for needle in (
     "UBI_MIGRATION_VERIFIED",
 ):
     assert needle in src, needle
+ui=(Path(os.environ["ROOT"])/"src/u-boot/include/ursusweb_ui.inc").read_text(encoding="latin-1")
+# t68: FIP/FIT/UBI diagnostic rows honour a verified migration; /api/log 404 = rebooted away.
+assert "S.boot_validation_reason==='UBI_MIGRATION_VERIFIED'&&!S.ubi_attached" in ui
+assert "if(r.status===404)t=" in ui
 print("Web reboot/post-migration regression guards: PASS")
 PY
 # MAC identity must be refreshed before autoboot on both current Nokia profiles.
