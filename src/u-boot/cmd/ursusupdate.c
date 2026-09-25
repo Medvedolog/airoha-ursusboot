@@ -115,6 +115,7 @@ struct ursus_update_ctx {
     ulong announced_at;
     bool ubi_layout;
     enum ursus_ubi_fip_mode ubi_fip_mode;
+    int ubi_fip_invalid_ret;  /* why active fip is INVALID; -ENODEV = intact foreign FIP */
     bool commit_started;
     bool write_started;
     char error_code[48];
@@ -645,24 +646,36 @@ static int ursus_ubi_classify_active_fip(enum ursus_ubi_fip_mode *mode)
     if (!mode)
         return -EINVAL;
     *mode = URSUS_UBI_FIP_NORMAL;
+    ursus_up.ubi_fip_invalid_ret = 0;
     if (run_command("ubi check fip", 0)) {
         *mode = URSUS_UBI_FIP_REPAIR_MISSING;
         printf("URSUS_UPDATE_ACTIVE_FIP state=MISSING\n");
         return 0;
     }
     desc = ubi_open_volume_nm(0, "fip", UBI_READONLY);
-    if (IS_ERR(desc))
-        return PTR_ERR(desc);
+    if (IS_ERR(desc)) {
+        /* t71: an active fip that cannot be opened is exactly what repair is for. */
+        *mode = URSUS_UBI_FIP_REPAIR_INVALID;
+        ursus_up.ubi_fip_invalid_ret = (int)PTR_ERR(desc);
+        printf("URSUS_UPDATE_ACTIVE_FIP state=INVALID reason=open ret=%d\n", ursus_up.ubi_fip_invalid_ret);
+        return 0;
+    }
     used = (unsigned long)desc->vol->used_bytes;
     ubi_close_volume(desc);
     if (!used || used > URSUS_UBI_FIP_VOL_SIZE) {
         *mode = URSUS_UBI_FIP_REPAIR_INVALID;
+        ursus_up.ubi_fip_invalid_ret = -EFBIG;
         printf("URSUS_UPDATE_ACTIVE_FIP state=INVALID reason=size bytes=%lu\n", used);
         return 0;
     }
     ret = run_commandf("ubi read 0x%08lx fip 0x%lx", URSUS_UBI_READBACK_ADDR, used);
-    if (ret)
-        return ret;
+    if (ret) {
+        /* t71: unreadable (ECC/corrupt) active fip is INVALID, not a classify failure. */
+        *mode = URSUS_UBI_FIP_REPAIR_INVALID;
+        ursus_up.ubi_fip_invalid_ret = -EIO;
+        printf("URSUS_UPDATE_ACTIVE_FIP state=INVALID reason=read ret=%d bytes=%lu\n", ret, used);
+        return 0;
+    }
     buf = map_sysmem(URSUS_UBI_READBACK_ADDR, used);
     if (!buf)
         return -ENOMEM;
@@ -670,11 +683,27 @@ static int ursus_ubi_classify_active_fip(enum ursus_ubi_fip_mode *mode)
     unmap_sysmem(buf);
     if (ret || declared_end != used) {
         *mode = URSUS_UBI_FIP_REPAIR_INVALID;
+        ursus_up.ubi_fip_invalid_ret = ret ? ret : -EINVAL;
         printf("URSUS_UPDATE_ACTIVE_FIP state=INVALID reason=validation ret=%d declared=%u used=%lu\n",
                ret, (unsigned int)declared_end, used);
         return 0;
     }
     printf("URSUS_UPDATE_ACTIVE_FIP state=VALID bytes=%lu\n", used);
+    return 0;
+}
+
+/* Free PEBs vs the LEBs a 1 MiB static fip.new needs.  OpenWrt and the
+ * WebFailsafe OpenWrt update size rootfs_data to all free space, so the
+ * headroom the STOCK->UBI migration leaves is not guaranteed later. */
+static int ursus_ubi_fip_new_headroom(unsigned int *avail, unsigned int *need)
+{
+    struct ubi_device *ubi = ubi_get_device(0);
+
+    if (!ubi)
+        return -ENODEV;
+    *need = DIV_ROUND_UP(URSUS_UBI_FIP_VOL_SIZE, ubi->leb_size);
+    *avail = ubi->avail_pebs;
+    ubi_put_device(ubi);
     return 0;
 }
 
@@ -1040,6 +1069,30 @@ int ursus_fip_update_step(void)
             run_command("ubi remove fip.old", 0);
         if (!run_command("ubi check fip.bad", 0))
             run_command("ubi remove fip.bad", 0);
+        {
+            unsigned int avail = 0, need = 0;
+
+            ret = ursus_ubi_fip_new_headroom(&avail, &need);
+            if (ret) return ursus_update_fail_reason(ret, "UBI_HEADROOM_UNKNOWN");
+            /* t71: no room next to an invalid active fip + preserved fip.old.
+             * A structurally broken fip cannot boot, so dropping it loses
+             * nothing; an intact foreign FIP (-ENODEV) is never removed. */
+            if (avail < need && ursus_up.ubi_fip_mode == URSUS_UBI_FIP_REPAIR_INVALID &&
+                ursus_up.ubi_fip_invalid_ret != -ENODEV) {
+                printf("URSUS_UPDATE_HEADROOM_LOW avail_pebs=%u need_lebs=%u action=remove-invalid-active-fip\n",
+                       avail, need);
+                ret = run_command("ubi remove fip", 0);
+                if (ret) return ursus_update_fail_reason(ret, "RECOVERY_INVALID_FIP_REMOVE_FAILED");
+                ursus_up.ubi_fip_mode = URSUS_UBI_FIP_REPAIR_MISSING;
+                printf("URSUS_UPDATE_RECOVERY_CREATE reason=invalid-fip-removed-for-headroom preserve=fip.old\n");
+                ret = ursus_ubi_fip_new_headroom(&avail, &need);
+                if (ret) return ursus_update_fail_reason(ret, "UBI_HEADROOM_UNKNOWN");
+            }
+            if (avail < need) {
+                printf("URSUS_UPDATE_HEADROOM_LOW avail_pebs=%u need_lebs=%u action=STOP\n", avail, need);
+                return ursus_update_fail_reason(-ENOSPC, "UBI_NO_SPACE_FOR_FIP_NEW");
+            }
+        }
         ret = run_command("ubi create fip.new 0x100000 static", 0);
         if (ret) return ursus_update_fail(ret);
         printf("URSUS_UPDATE_STAGE_READY layout=UBI volume=fip.new mode=%s backup=%s\n",
@@ -1107,7 +1160,15 @@ int ursus_fip_update_step(void)
             ret = ursus_fip_validate_kind(URSUS_UBI_READBACK_ADDR, ursus_up.len, false, ursus_up.kind);
         if (ret) {
             if (ursus_up.ubi_fip_mode == URSUS_UBI_FIP_REPAIR_MISSING) {
-                printf("URSUS_UPDATE_POSTCOMMIT_VERIFY_FAIL ret=%d action=NONE reason=no-active-fip-backup\n", ret);
+                /* t71: no previous active fip to restore; do not leave an
+                 * unverified image as the boot fip - quarantine it. */
+                int q;
+
+                if (!run_command("ubi check fip.bad", 0))
+                    run_command("ubi remove fip.bad", 0);
+                q = run_command("ubi rename fip fip.bad", 0);
+                printf("URSUS_UPDATE_POSTCOMMIT_VERIFY_FAIL ret=%d action=QUARANTINE fip->fip.bad result=%s\n",
+                       ret, q ? "FAILED" : "OK");
                 return ursus_update_fail_reason(ret, "RECOVERY_FIP_POSTCOMMIT_VERIFY_FAILED");
             }
             printf("URSUS_UPDATE_POSTCOMMIT_VERIFY_FAIL ret=%d action=ROLLBACK mode=%s\n",

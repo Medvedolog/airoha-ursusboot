@@ -11,6 +11,26 @@ Evidence labels used here:
 
 **QA PASS and BUILD PASS are not HW PASS.**
 
+## 0.1.0-alpha5-t71 (branch `test63`)
+
+Review fixes for the t70 UBI boot-FIP repair.
+
+- An active `fip` that cannot be opened or read (ECC/corrupt) is classified
+  **invalid** and repaired; t70 aborted with `UBI_ACTIVE_FIP_CLASSIFY_FAILED`
+  in exactly the case repair exists for.
+- UBI headroom: OpenWrt and the WebFailsafe OpenWrt update size `rootfs_data`
+  to all free space, so an invalid `fip` plus the preserved `fip.old` left no
+  room for the 1 MiB `fip.new` (`ubi create` failed). Before staging, free
+  PEBs are checked; if short, a structurally broken active `fip` is removed
+  (it cannot boot) and the repair continues as recovery-create with `fip.old`
+  still preserved. An intact foreign FIP (identity mismatch, e.g. Vanilla) is
+  never removed; otherwise the update stops with `UBI_NO_SPACE_FOR_FIP_NEW`.
+- Recovery-create whose final verification fails no longer leaves the
+  unverified image as the boot `fip`: it is quarantined as `fip.bad`.
+- `build.sh` executable again (t70 Build failed with `Permission denied`).
+- Local compile of `cmd/ursusupdate.o` (OpenWrt gcc 14.4, MD tree) clean.
+  **HW PENDING.**
+
 ## 0.1.0-alpha5-t70 (branch `test63`)
 
 T70 closes the second half of the UBI boot-FIP repair state machine and makes

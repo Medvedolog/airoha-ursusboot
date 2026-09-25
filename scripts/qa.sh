@@ -124,7 +124,20 @@ for needle in (
 release=(root/".github/workflows/release.yml").read_text()
 assert 'test -s "dl/$BOARD/ursusboot-update.fip"' in release
 assert "canonical ursusboot-update.fip" in release
-print("T70 FIP recovery state matrix + canonical repair artifact guards: PASS")
+# t71: unreadable fip = INVALID; UBI headroom; MISSING post-verify quarantine.
+for needle in (
+    "state=INVALID reason=read",
+    "state=INVALID reason=open",
+    "ursus_ubi_fip_new_headroom",
+    "action=remove-invalid-active-fip",
+    "ursus_up.ubi_fip_invalid_ret != -ENODEV",
+    "UBI_NO_SPACE_FOR_FIP_NEW",
+    'run_command("ubi rename fip fip.bad", 0)',
+    "action=QUARANTINE fip->fip.bad",
+):
+    assert needle in upd, needle
+assert 'return ret;\n    buf = map_sysmem(URSUS_UBI_READBACK_ADDR, used);' not in upd
+print("T70/T71 FIP recovery state matrix + canonical repair artifact guards: PASS")
 PY
 # MAC identity must be refreshed before autoboot on both current Nokia profiles.
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/u-boot.TEST61.full.config"
