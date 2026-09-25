@@ -108,9 +108,26 @@ jobs:
           SHA: ${{ steps.run.outputs.sha }}
         run: |
           set -euo pipefail
+          # GITHUB_TOKEN may not create a tag on a commit whose .github/workflows
+          # differ from main (403 "Resource not accessible by integration").
+          # When main differs from the built commit only in docs/.github, tag
+          # main instead: same firmware sources, notes name the built commit.
+          TARGET="$SHA"
+          MAIN="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          if [ "$MAIN" != "$SHA" ]; then
+            OTHER="$(gh api "repos/$GITHUB_REPOSITORY/compare/$SHA...$MAIN" --jq '.files[].filename' \
+                     | grep -Ev '^(\.github/|docs/|README[^/]*$|CHANGELOG\.md$)' || true)"
+            if [ -z "$OTHER" ]; then
+              TARGET="$MAIN"
+              echo "tagging main $MAIN (differs from built $SHA only in docs/.github)"
+            else
+              echo "main differs from the built commit in sources; tagging $SHA:" >&2
+              echo "$OTHER" >&2
+            fi
+          fi
           gh release create "$TAG" assets/* \
             --repo "$GITHUB_REPOSITORY" \
-            --target "$SHA" \
+            --target "$TARGET" \
             --title "UrsusBoot ${{ steps.meta.outputs.version }}" \
             --notes-file notes.md \
             --prerelease
