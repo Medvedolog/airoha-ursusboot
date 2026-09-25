@@ -32,6 +32,15 @@ initramfs) took over. Mirror image of the t64 Vanilla-with-UrsusBoot-env stop.
   The reset is in RAM only (`URSUS_ENV_RESET scope=RAM flash_env=UNCHANGED`):
   saving at boot would let an UrsusBoot loaded into RAM over UART overwrite
   Vanilla's own environment; UrsusBoot's own writes persist it.
+  Consequence: a foreign environment stays on flash until UrsusBoot's first
+  own `saveenv` (STOCK->UBI migration, `rootfs_data_max`); anything reading
+  the flash env meanwhile (OpenWrt `fw_printenv`/`fw_setenv`) sees it. Tools
+  that switch UrsusBoot <-> Vanilla should invalidate `ubootenv`/`ubootenv2`
+  themselves (Vanilla has no such guard).
+- Stock layout: UrsusBoot keeps its environment only in UBI, so on the Nokia
+  stock layout it never reads the Nokia env (mtd0 0x7C000); it runs on its
+  compiled defaults and `ethaddr` falls back to the driver's random MAC (the
+  factory MAC in the stock `ri` partition is not read yet - planned).
 - Recovery no longer depends on the environment: if `bootcmd` does not run
   `ursusdispatch` and Reset is held, `ursusdispatch` is run directly
   (`URSUS_ENV_BOOTCMD_BYPASS`), so a hand-edited `bootcmd` cannot disable
