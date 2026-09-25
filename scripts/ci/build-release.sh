@@ -157,4 +157,6 @@ python3 "$ROOT/scripts/ci/write_provenance.py" --out "$OUT" --board "$BOARD" --o
     --openwrt-patches-from "$CFG" \
     --atf-source "$ATF_SRC" --atf-patch "$PATCH" --atf-upstream "$(cfg atf_patch_upstream)" \
     --uboot-variant "$UVAR"
+# UrsusBoot lives in BL33: it must fit the Nokia stock bootloader window.
+python3 "$ROOT/scripts/ci/check_bl33_budget.py" "$BOARD" "$OUT"
 echo "URSUSBOOT_RELEASE=OK board=$BOARD"

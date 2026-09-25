@@ -101,6 +101,25 @@ defenvs/                  per-board default environments
 - **airoha-router-ursusflasher**: host/orchestrator — backup, transports, readback, diagnostics, OpenWrt payloads and the ONECLICK/EXPERT kit. It pins an exact commit of this repository; MD and MF artifacts must come from that same commit, otherwise the kit build fails closed.
 - **Vanilla U-Boot**: a separate product line (plain OpenWrt U-Boot for the final UBI layout), not built from this framework.
 
+## Everything in BL33
+
+UrsusBoot lives entirely in BL33 (U-Boot proper) — no recovery kernel, initramfs or extra partition. On the Nokia stock layout it fits the stock bootloader window of mtd0 (`0x800..0x7BFFF`): the ROM prefix before it and the Nokia environment at `0x7C000` are untouched and the native BL2 stays. That window (~300 KiB of compressed BL33) holds:
+
+- lwIP networking and the WebFailsafe HTTP server with multi-megabyte RAM uploads;
+- a self-contained RU/EN page with no external assets and a real U-Boot console in the browser;
+- FIT (hashes, board, image class) and FIP validation before any write, with explicit reason codes;
+- the Nokia STOCK -> OpenWrt UBI migration carrying `bosa`/`ri`, with readback and BL2 committed last;
+- transactional bootloader updates (`fip.new` -> verify -> atomic promote, rollback) and repair of a missing/invalid `fip`;
+- an operation log, NAND diagnostics, the Reset latch and LED patterns.
+
+Recovery therefore depends on no kernel, rootfs or UBI content and comes up in seconds. The remaining window is checked by CI on every build (`scripts/ci/check_bl33_budget.py`); at t71 about 91% (MD) and 97% (MF) is used, so every new feature counts.
+
+## Where it sits among WebFailsafe bootloaders
+
+Web recovery in the bootloader is a community idea: **hanwckf** (`bl-mt798x`) and **Yuzhii0718** (its continuation, including TF-A for Airoha), and there is a U-Boot with web recovery for Airoha AN7581/AN7583 built on that work. They cover dozens of boards and have been exercised by a very large user base — UrsusBoot does not claim that.
+
+What UrsusBoot adds is different: it works inside the Nokia stock boot chain without replacing BL2, migrates the flash layout itself while preserving factory data, writes transactionally with rollback, keeps a recovery path no environment can disable, builds reproducibly with `PROVENANCE.json`, and comes with tools — UrsusFlasher and UrsidoRescue — that take a router from stock firmware to OpenWrt and back with a full backup before the first write. The honest price: two supported models and alpha status.
+
 ## Documentation
 
 The short README is the architecture/overview entry point. Operational detail lives in `docs/`:
