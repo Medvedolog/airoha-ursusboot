@@ -202,9 +202,11 @@ U_BOOT_CMD(ursusdispatch, 1, 0, do_ursusdispatch,
  * other way round); UrsusBoot's own writes (migration, updates) persist it.
  * Boot is never blocked.
  */
+/* kept across a reset: ethaddr always (a device property, not a loader
+ * setting); rootfs_data_max only from an UrsusBoot env (MIGRATE). */
 static const char *const ursus_env_keep[] = {
+    "ethaddr",
     "rootfs_data_max",  /* written by the STOCK->UBI migration */
-    "ethaddr",          /* persisted fallback MAC on the stock layout */
 };
 
 void ursus_env_guard_hook(void)
@@ -221,7 +223,7 @@ void ursus_env_guard_hook(void)
     if (!cur_rev || strcmp(cur_rev, def_rev)) {
         own = cur_rev || (cur_boot && strstr(cur_boot, "ursusdispatch"));
         for (i = 0; i < ARRAY_SIZE(ursus_env_keep); i++) {
-            const char *v = own ? env_get(ursus_env_keep[i]) : NULL;
+            const char *v = (own || i == 0) ? env_get(ursus_env_keep[i]) : NULL;
 
             snprintf(keep[i], sizeof(keep[i]), "%s", v ? v : "");
         }

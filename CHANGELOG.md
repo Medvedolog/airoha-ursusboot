@@ -11,6 +11,31 @@ Evidence labels used here:
 
 **QA PASS and BUILD PASS are not HW PASS.**
 
+## 0.1.0-alpha5-t73 (branch `test63`)
+
+BL33 size diet: UrsusBoot lives in BL33 and on the stock layout must fit the
+Nokia bootloader window (`scripts/ci/check_bl33_budget.py`). At t71 MF used
+96.5% (11.4 KiB left) and MD 90.6%.
+
+- New fragment `config/ursusboot-size.cfg` for MD and MF disables what
+  nothing in UrsusBoot, its default env, WebFailsafe, UrsusFlasher or
+  UrsidoRescue uses: UBIFS (left on MF, already forbidden on MD: -30 KiB),
+  GPT/part/EFI partitions, DHCP/SNTP, elf/booti/imxtract/unlz4/loads,
+  askenv/editenv/source/random/uuid/smc/strings, long command help,
+  FIT_VERBOSE, SHA512, and on MD standard boot/VBE/bootflow/ubiblock/block
+  cache/NAND test commands. The same options were removed from
+  `ursusboot-common.cfg`.
+- Kept on purpose and now required by the profiles: `hash` (MF UART
+  recovery runs `hash sha256`), crc32, cmp, loadb/x/y, tftpboot, wget+dns,
+  ubi (+rename), itest/setexpr/iminfo/bootm, mii; `CONFIG_LZMA` is now
+  explicit (FIP validation) - it used to arrive only via UBIFS on MF.
+- Local builds with the real fragment pipeline (LZMA BL33): MD 299889 ->
+  266162 (-33 KiB, ~60 KiB free), MF 320001 -> 263685 (-55 KiB, ~68 KiB free).
+- Environment reset keeps `ethaddr` always (a device property);
+  `rootfs_data_max` only when migrating an UrsusBoot env. `ursus_env_rev=73`
+  (t72 envs are migrated).
+- **HW PENDING.**
+
 ## 0.1.0-alpha5-t72 (branch `test63`)
 
 Vanilla -> UrsusBoot reverse path (XG-040G-MD HW report): after restoring an

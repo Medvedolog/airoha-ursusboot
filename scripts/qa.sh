@@ -147,8 +147,8 @@ grep -q 'URSUS_ENV_BOOTCMD_BYPASS reason=reset-held' "$ROOT/src/u-boot/cmd/ursus
 grep -q 'scope=RAM flash_env=UNCHANGED' "$ROOT/src/u-boot/cmd/ursusdispatch.c"
 ! grep -q 'env_save()' "$ROOT/src/u-boot/cmd/ursusdispatch.c"
 grep -q '"rootfs_data_max",' "$ROOT/src/u-boot/cmd/ursusdispatch.c"
-grep -qx 'ursus_env_rev=72' "$ROOT/src/u-boot/defenvs/an7581_nokia_xg-040g-md_env"
-grep -qx 'ursus_env_rev=72' "$ROOT/config/an7583_nokia_xg-040g-mf_RUNTIME_env"
+grep -qx 'ursus_env_rev=73' "$ROOT/src/u-boot/defenvs/an7581_nokia_xg-040g-md_env"
+grep -qx 'ursus_env_rev=73' "$ROOT/config/an7583_nokia_xg-040g-mf_RUNTIME_env"
 # BL33 budget checker runs against the pinned MD donor-format FIP.
 BUDGET_TMP="$(mktemp -d)"; cp "$ROOT/reference/md/ursusboot-test61-update.fip" "$BUDGET_TMP/ursusboot-update.fip"
 python3 "$ROOT/scripts/ci/check_bl33_budget.py" xg040-md "$BUDGET_TMP" | grep -q '^BL33_BUDGET board=xg040-md '
