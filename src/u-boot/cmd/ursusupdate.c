@@ -108,6 +108,7 @@ struct ursus_update_ctx {
     bool announced;
     ulong announced_at;
     bool ubi_layout;
+    bool ubi_repair_create;
     bool commit_started;
     bool write_started;
     char error_code[48];
@@ -273,8 +274,6 @@ static int ursus_update_ensure_ubi_attachment(void)
         ubi_put_device(ubi);
     }
 
-    if (run_command("ubi check fip", 0))
-        return -ENOENT;
     return 0;
 }
 
@@ -943,22 +942,28 @@ int ursus_fip_update_step(void)
         ret = ursus_update_ensure_ubi_attachment();
         if (ret) return ursus_update_fail_reason(ret,
             ret == -EXDEV ? "UBI_ATTACHMENT_MISMATCH" : "UBI_ATTACH_FAILED");
+        if (run_command("ubi check fip", 0)) {
+            if (ursus_up.kind != URSUS_FIP_KIND_URSUS)
+                return ursus_update_fail_reason(-ENOENT, "UBI_ACTIVE_FIP_MISSING");
+            ursus_up.ubi_repair_create = true;
+            printf("URSUS_UPDATE_RECOVERY_CREATE reason=active-fip-missing candidate=validated-ursusboot preserve=fip.old\n");
+        }
         ursus_up.last_success_stage = URSUS_UP_UBI_ATTACH;
         ursus_up.stage = URSUS_UP_UBI_STAGE_PREP;
         break;
 
     case URSUS_UP_UBI_STAGE_PREP:
         ursus_up.write_started = true;
-        /* Removing stale backup/stage never touches the current fip volume. */
         if (!run_command("ubi check fip.new", 0))
             run_command("ubi remove fip.new", 0);
-        if (!run_command("ubi check fip.old", 0))
+        if (!ursus_up.ubi_repair_create && !run_command("ubi check fip.old", 0))
             run_command("ubi remove fip.old", 0);
         if (!run_command("ubi check fip.bad", 0))
             run_command("ubi remove fip.bad", 0);
         ret = run_command("ubi create fip.new 0x100000 static", 0);
         if (ret) return ursus_update_fail(ret);
-        printf("URSUS_UPDATE_STAGE_READY layout=UBI volume=fip.new current=fip-intact\n");
+        printf("URSUS_UPDATE_STAGE_READY layout=UBI volume=fip.new current=%s\n",
+               ursus_up.ubi_repair_create ? "fip-missing-recovery-create" : "fip-intact");
         ursus_up.last_success_stage = URSUS_UP_UBI_STAGE_PREP;
         ursus_up.stage = URSUS_UP_UBI_STAGE_WRITE;
         break;
@@ -993,10 +998,17 @@ int ursus_fip_update_step(void)
 
     case URSUS_UP_UBI_PROMOTE:
         ursus_up.commit_started = true;
-        printf("URSUS_UPDATE_COMMIT_BEGIN layout=UBI atomic=fip->fip.old,fip.new->fip\n");
-        ret = ursus_ubi_atomic_switch("fip", "fip.new", "fip.old");
-        if (ret) return ursus_update_fail(ret);
-        printf("URSUS_UPDATE_PROMOTE_OK layout=UBI backup=fip.old\n");
+        if (ursus_up.ubi_repair_create) {
+            printf("URSUS_UPDATE_COMMIT_BEGIN layout=UBI recovery=create-fip source=fip.new backup=preserved-if-present\n");
+            ret = run_command("ubi rename fip.new fip", 0);
+            if (ret) return ursus_update_fail_reason(ret, "RECOVERY_FIP_RENAME_FAILED");
+            printf("URSUS_UPDATE_PROMOTE_OK layout=UBI recovery=create-fip backup=preserved-if-present\n");
+        } else {
+            printf("URSUS_UPDATE_COMMIT_BEGIN layout=UBI atomic=fip->fip.old,fip.new->fip\n");
+            ret = ursus_ubi_atomic_switch("fip", "fip.new", "fip.old");
+            if (ret) return ursus_update_fail(ret);
+            printf("URSUS_UPDATE_PROMOTE_OK layout=UBI backup=fip.old\n");
+        }
         ursus_up.last_success_stage = URSUS_UP_UBI_PROMOTE;
         ursus_up.stage = URSUS_UP_UBI_VERIFY;
         break;
@@ -1006,9 +1018,13 @@ int ursus_fip_update_step(void)
         if (!ret)
             ret = ursus_fip_validate_kind(URSUS_UBI_READBACK_ADDR, ursus_up.len, false, ursus_up.kind);
         if (ret) {
+            if (ursus_up.ubi_repair_create) {
+                printf("URSUS_UPDATE_POSTCOMMIT_VERIFY_FAIL ret=%d action=NONE reason=no-active-fip-backup\n", ret);
+                return ursus_update_fail_reason(ret, "RECOVERY_FIP_POSTCOMMIT_VERIFY_FAILED");
+            }
             printf("URSUS_UPDATE_POSTCOMMIT_VERIFY_FAIL ret=%d action=ROLLBACK\n", ret);
             ursus_up.last_success_stage = URSUS_UP_UBI_VERIFY;
-        ursus_up.stage = URSUS_UP_UBI_ROLLBACK;
+            ursus_up.stage = URSUS_UP_UBI_ROLLBACK;
             break;
         }
         /* Vanilla must not boot with UrsusBoot's environment; if it cannot be
@@ -1021,8 +1037,9 @@ int ursus_fip_update_step(void)
         }
         ursus_up.stage = URSUS_UP_COMPLETE;
         ursus_up.active = false;
-        printf("URSUS_UPDATE_COMMIT_OK layout=UBI kind=%s backup=fip.old reboot=MANUAL\n",
-               ursus_fip_kind_name(ursus_up.kind));
+        printf("URSUS_UPDATE_COMMIT_OK layout=UBI kind=%s recovery_create=%u backup=%s reboot=MANUAL\n",
+               ursus_fip_kind_name(ursus_up.kind), ursus_up.ubi_repair_create ? 1U : 0U,
+               ursus_up.ubi_repair_create ? "preserved-if-present" : "fip.old");
         if (ursus_up.kind == URSUS_FIP_KIND_VANILLA)
             printf("URSUS_VANILLA_REPLACE_COMPLETE fip=VANILLA fip.old=URSUSBOOT env=RESET next_boot=VANILLA_UBOOT\n");
         return 1;

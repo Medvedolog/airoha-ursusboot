@@ -1558,6 +1558,9 @@ static void ursus_build_status(void)
     bool ubi_update_ready = ursus_img.type == URSUS_IMG_UBI_SYSUPGRADE &&
                             !strcmp(ursus_img.reason_class, URSUS_RC_OK) &&
                             !strcmp(ursus_current_layout, "OPENWRT_UBI") &&
+                            (ursus_ubi_migration_complete() ||
+                             (ursus_ubi_diag.attached && ursus_ubi_diag.fip.present &&
+                              ursus_ubi_diag.fip.valid)) &&
                             !any_op_active;
     bool ubi_migrate_ready = ursus_img.type == URSUS_IMG_UBI_SYSUPGRADE &&
                              !strcmp(ursus_img.reason_class, URSUS_RC_OK) &&
@@ -2264,6 +2267,10 @@ static err_t ursus_route_ready(struct tcp_pcb *pcb, struct ursus_conn *c)
             return ursus_http_start_response(pcb, c, 409, "application/json",
                 "{\"result\":\"REJECTED\",\"reason_class\":\"OPERATION_LOCKED\",\"reason\":\"validated UBI sysupgrade image required\"}\n");
         if (is_ubi) {
+            if (ursus_ubi_diag.attached &&
+                (!ursus_ubi_diag.fip.present || !ursus_ubi_diag.fip.valid))
+                return ursus_http_start_response(pcb, c, 409, "application/json",
+                    "{\"result\":\"REJECTED\",\"reason_class\":\"BOOTLOADER_REPAIR_REQUIRED\",\"reason\":\"active UBI fip is missing or invalid; restore UrsusBoot first\"}\n");
             if (ursus_ubi_update_active() || ursus_ubi_migration_active() || ursus_fip_update_active())
                 return ursus_http_start_response(pcb, c, 409, "application/json",
                     "{\"result\":\"REJECTED\",\"reason_class\":\"OPERATION_LOCKED\",\"reason\":\"another operation is active\"}\n");

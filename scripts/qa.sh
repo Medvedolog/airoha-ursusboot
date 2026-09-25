@@ -77,6 +77,28 @@ assert "S.boot_validation_reason==='UBI_MIGRATION_VERIFIED'&&!S.ubi_attached" in
 assert "if(r.status===404)t=" in ui
 print("Web reboot/post-migration regression guards: PASS")
 PY
+ROOT="$ROOT" python3 - <<'PY'
+import os
+from pathlib import Path
+root=Path(os.environ["ROOT"])
+upd=(root/"src/u-boot/cmd/ursusupdate.c").read_text()
+web=(root/"src/u-boot/cmd/ursusweb.c").read_text()
+ui=(root/"src/u-boot/include/ursusweb_ui.inc").read_text()
+for needle in (
+    "ubi_repair_create",
+    "URSUS_UPDATE_RECOVERY_CREATE",
+    'run_command("ubi rename fip.new fip", 0)',
+    "RECOVERY_FIP_POSTCOMMIT_VERIFY_FAILED",
+    "preserve=fip.old",
+):
+    assert needle in upd, needle
+assert 'if (run_command("ubi check fip", 0))\n        return -ENOENT;' not in upd
+assert "BOOTLOADER_REPAIR_REQUIRED" in web
+assert "restore UrsusBoot first" in web
+assert "recovery create" in ui
+assert "Restore UrsusBoot" in ui
+print("Missing-fip recovery-create guards: PASS")
+PY
 # MAC identity must be refreshed before autoboot on both current Nokia profiles.
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/u-boot.TEST61.full.config"
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/an7583_nokia_xg-040g-mf_MF2_RAM_defconfig"

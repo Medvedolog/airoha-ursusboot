@@ -11,6 +11,26 @@ Evidence labels used here:
 
 **QA PASS and BUILD PASS are not HW PASS.**
 
+## 0.1.0-alpha5-t69 (branch `test63`)
+
+Narrow recovery fix for an OpenWrt UBI layout where WebFailsafe is running but
+the active `fip` volume is genuinely missing. The normal OpenWrt updater still
+fails closed; the operator is guided to restore UrsusBoot first.
+
+- A validated, board-correct UrsusBoot FIP can use a recovery-create path:
+  `fip.new` -> byte-exact readback/validation -> UBI rename to `fip` -> final
+  validation. BL2 is not modified.
+- The path is UrsusBoot-only. Vanilla still requires an active `fip`.
+- Existing `fip.old` is preserved; no fake backup is created when active
+  `fip` did not exist.
+- WebFailsafe reuses the existing FIP upload/update pane and labels the action
+  **Restore UrsusBoot** when attached UBI proves `fip` missing.
+- OpenWrt in-place update is not advertised or started when attached UBI proves
+  the boot FIP missing/invalid; API returns `BOOTLOADER_REPAIR_REQUIRED`.
+- No new recovery subsystem or large UI pane was added; existing validators,
+  staging/readback and UBI rename machinery are reused.
+- **SOURCE only until exact QA/build completes; HW PENDING.**
+
 ## 0.1.0-alpha5-t68 (branch `test63`)
 
 WebFailsafe diagnostics after a completed STOCK->UBI migration (XG-040G-MF/t67
