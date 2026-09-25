@@ -91,7 +91,12 @@ jobs:
             exit 3
           fi
           # Changelog section of this version.
-          awk -v v="## $VERSION" 'index($0,v)==1{on=1;next} on&&/^## /{exit} on' CHANGELOG.md > notes.md
+          # Notes come from main's CHANGELOG: hardware evidence is recorded after
+          # the released commit was built.
+          gh api "repos/$GITHUB_REPOSITORY/contents/CHANGELOG.md?ref=main" \
+            -H "Accept: application/vnd.github.raw" > CHANGELOG.main.md
+          awk -v v="## $VERSION" 'index($0,v)==1{on=1;next} on&&/^## /{exit} on' CHANGELOG.main.md > notes.md
+          test -s notes.md
           { echo; echo "Commit: \`$SHA\` · build run $BUILD_RUN"; echo; echo '```text'; cat assets/SHA256SUMS.txt; echo '```'; } >> notes.md
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
