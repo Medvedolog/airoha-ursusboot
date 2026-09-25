@@ -32,7 +32,15 @@ Review fixes for the t70 UBI boot-FIP repair.
 - HW PASS (XG-040G-MD, SkyHigh S35ML02G300, UrsusFlasher 0.2.71 ONE-KEY):
   Nokia STOCK -> UrsusBoot t71 -> verified OpenWrt UBI migration, t68
   diagnostics green after the migration, OpenWrt booted after **Reboot into
-  OpenWrt**. The fip repair paths themselves are still HW PENDING.
+  OpenWrt**.
+- HW PASS (XG-040G-MD, SkyHigh S35ML02G300, UrsusFlasher 0.2.71 ONE-KEY
+  Vanilla = item 4, UART log): full stock backup -> UrsusBoot t71 in mtd0 ->
+  STOCK->UBI migration -> Vanilla replacement in normal mode
+  (`ACTIVE_FIP state=VALID`, fip.new -> readback -> atomic promote, fip.old =
+  UrsusBoot), `URSUS_VANILLA_ENV_RESET_OK`, Web reboot on attempt 1/3, fast BL2
+  booted Vanilla from UBI `fip` with the default environment, OpenWrt booted
+  unattended; UBI `fip` = pinned Vanilla FIP `0aac2e6b…170a`, br-lan MAC =
+  factory MAC from `ri`. The fip repair paths themselves are still HW PENDING.
 
 ## 0.1.0-alpha5-t70 (branch `test63`)
 
