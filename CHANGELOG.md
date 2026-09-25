@@ -11,6 +11,26 @@ Evidence labels used here:
 
 **QA PASS and BUILD PASS are not HW PASS.**
 
+## 0.1.0-alpha5-t72 (branch `test63`)
+
+Vanilla -> UrsusBoot reverse path (XG-040G-MD HW report): after restoring an
+UrsusBoot FIP over Vanilla through UART, UrsusBoot loaded the environment
+Vanilla had saved in `ubootenv`/`ubootenv2`. Its `bootcmd` replaced
+`ursusdispatch`, so boot-held Reset, the red LED and WebFailsafe never ran and
+Vanilla's autoboot/TFTP recovery (`Autoboot in 3 seconds`, TFTP of the
+initramfs) took over. Mirror image of the t64 Vanilla-with-UrsusBoot-env stop.
+
+- After the environment is loaded and before `preboot`/`bootcmd`
+  (`EVT_LAST_STAGE_INIT`), UrsusBoot checks it: when the build's own default
+  `bootcmd` is `ursusdispatch` and the loaded one is not, the environment is
+  reset to UrsusBoot's defaults and saved (`URSUS_ENV_FOREIGN ...`,
+  `URSUS_ENV_FOREIGN_RESET saved=YES`). Covers every way an UrsusBoot FIP can
+  land in UBI `fip` (UART, WebFailsafe, manual `ubi write`). Boot is never
+  blocked; builds whose default env does not use `ursusdispatch` are unaffected.
+- Local full MD `u-boot.bin` build clean; the spy is linked
+  (`_u_boot_list_2_evspy_info_2_EVT_LAST_STAGE_INIT_3_ursus_env_guard`).
+  **HW PENDING.**
+
 ## 0.1.0-alpha5-t71 (branch `test63`)
 
 Review fixes for the t70 UBI boot-FIP repair.

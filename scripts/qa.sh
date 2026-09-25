@@ -139,6 +139,10 @@ for needle in (
 assert 'return ret;\n    buf = map_sysmem(URSUS_UBI_READBACK_ADDR, used);' not in upd
 print("T70/T71 FIP recovery state matrix + canonical repair artifact guards: PASS")
 PY
+# t72: a foreign (Vanilla) UBI env must not replace ursusdispatch.
+grep -q 'EVENT_SPY_SIMPLE(EVT_LAST_STAGE_INIT, ursus_env_guard);' "$ROOT/src/u-boot/cmd/ursusdispatch.c"
+grep -q 'URSUS_ENV_FOREIGN bootcmd=' "$ROOT/src/u-boot/cmd/ursusdispatch.c"
+grep -q 'strstr(def, "ursusdispatch")' "$ROOT/src/u-boot/cmd/ursusdispatch.c"
 # MAC identity must be refreshed before autoboot on both current Nokia profiles.
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/u-boot.TEST61.full.config"
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/an7583_nokia_xg-040g-mf_MF2_RAM_defconfig"

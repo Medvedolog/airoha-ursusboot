@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0+
 #include <button.h>
 #include <command.h>
+#include <env.h>
+#include <event.h>
 #include <mapmem.h>
 #include <mtd.h>
 #include <time.h>
@@ -183,3 +185,32 @@ static int do_ursusdispatch(struct cmd_tbl *cmdtp, int flag, int argc, char *con
 
 U_BOOT_CMD(ursusdispatch, 1, 0, do_ursusdispatch,
            URSUS_PRODUCT_VERSION " boot-held Reset / stock-layout + UBI dispatcher", "");
+
+/*
+ * t72: a UBI env written by another bootloader (Vanilla OpenWrt U-Boot, e.g.
+ * after UrsusBoot was restored over Vanilla via UART) replaces bootcmd, so
+ * ursusdispatch never runs: no boot-held Reset, no WebFailsafe, Vanilla's
+ * TFTP recovery instead.  Runs after env load, before preboot/bootcmd.  Only
+ * acts when this build's own default env boots through ursusdispatch.
+ */
+#if CONFIG_IS_ENABLED(EVENT)
+static int ursus_env_guard(void)
+{
+    char def[64];
+    const char *cur = env_get("bootcmd");
+    int ret;
+
+    if (env_get_default_into("bootcmd", def, sizeof(def)) <= 0 ||
+        !strstr(def, "ursusdispatch"))
+        return 0;
+    if (cur && strstr(cur, "ursusdispatch"))
+        return 0;
+    printf("URSUS_ENV_FOREIGN bootcmd=\"%s\" action=RESET_TO_URSUSBOOT_DEFAULT\n",
+           cur ? cur : "<none>");
+    env_set_default("## UrsusBoot: foreign environment replaced by UrsusBoot defaults\n", 0);
+    ret = env_save();
+    printf("URSUS_ENV_FOREIGN_RESET saved=%s\n", ret ? "NO" : "YES");
+    return 0;  /* never block boot: the in-memory env is already UrsusBoot's */
+}
+EVENT_SPY_SIMPLE(EVT_LAST_STAGE_INIT, ursus_env_guard);
+#endif
