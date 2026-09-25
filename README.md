@@ -116,7 +116,7 @@ Recovery therefore depends on no kernel, rootfs or UBI content and comes up in s
 
 ## Where it sits among WebFailsafe bootloaders
 
-Web recovery in the bootloader is a community idea: **hanwckf** (`bl-mt798x`) and **Yuzhii0718** (its continuation, including TF-A for Airoha), and there is a U-Boot with web recovery for Airoha AN7581/AN7583 built on that work. They cover dozens of boards and have been exercised by a very large user base — UrsusBoot does not claim that.
+Web recovery in the bootloader is a community idea: **hanwckf** (`bl-mt798x`) and **Yuzhii0718** (its continuation, including TF-A for Airoha), and for Airoha AN7581/AN7583 there is the independent **pbs05** [`uboot-an758x`](https://github.com/pbs05/uboot-an758x) with browser-based recovery, Nokia XG-040G-MD/MF included (its TF-A comes from Ansuel, mkshevetskiy and Yuzhii0718). They cover dozens of boards and have been exercised by a very large user base — UrsusBoot does not claim that.
 
 What UrsusBoot adds is different: it works inside the Nokia stock boot chain without replacing BL2, migrates the flash layout itself while preserving factory data, writes transactionally with rollback, keeps a recovery path no environment can disable, builds reproducibly with `PROVENANCE.json`, and comes with tools — UrsusFlasher and UrsidoRescue — that take a router from stock firmware to OpenWrt and back with a full backup before the first write. The honest price: two supported models and alpha status.
 
