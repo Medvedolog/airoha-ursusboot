@@ -29,7 +29,10 @@ Review fixes for the t70 UBI boot-FIP repair.
   unverified image as the boot `fip`: it is quarantined as `fip.bad`.
 - `build.sh` executable again (t70 Build failed with `Permission denied`).
 - Local compile of `cmd/ursusupdate.o` (OpenWrt gcc 14.4, MD tree) clean.
-  **HW PENDING.**
+- HW PASS (XG-040G-MD, SkyHigh S35ML02G300, UrsusFlasher 0.2.71 ONE-KEY):
+  Nokia STOCK -> UrsusBoot t71 -> verified OpenWrt UBI migration, t68
+  diagnostics green after the migration, OpenWrt booted after **Reboot into
+  OpenWrt**. The fip repair paths themselves are still HW PENDING.
 
 ## 0.1.0-alpha5-t70 (branch `test63`)
 

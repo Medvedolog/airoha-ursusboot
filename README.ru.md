@@ -397,6 +397,10 @@ board_r.c  INITCALL(run_main_loop)  -> main_loop() -> preboot -> ethaddr_factory
 
 ## Веб-интерфейс
 
+![Веб-интерфейс UrsusBoot WebFailsafe на Nokia XG-040G-MD после завершённого перехода STOCK->UBI](docs/images/webfailsafe-xg040g-md-t71.webp)
+
+*UrsusBoot 0.1.0-alpha5-t71 на Nokia XG-040G-MD (AN7581, SPI-NAND SkyHigh) сразу после проверенного перехода с заводской прошивки Nokia на OpenWrt UBI (UrsusFlasher ONE-KEY): все шаги миграции OK, диагностика показывает тома как проверенные при переходе, а после **Перезагрузить в OpenWrt** открытая вкладка сообщает, что роутер уже вышел из UrsusBoot.*
+
 WebFailsafe отдаёт одну самодостаточную страницу из флеш-памяти: без внешних ресурсов и CDN, с переключением русского и английского языка. Схема страницы:
 
 ```text

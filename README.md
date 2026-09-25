@@ -355,7 +355,13 @@ Both board configurations set `CONFIG_ENV_OVERWRITE=y`. Without it the `ethaddr`
 
 ## Web UI
 
-WebFailsafe serves one self-contained page from flash — no external assets, no CDN, RU/EN switchable. Layout:
+WebFailsafe serves one self-contained page from flash — no external assets, no CDN, RU/EN switchable.
+
+![UrsusBoot WebFailsafe on Nokia XG-040G-MD after a completed STOCK->UBI migration](docs/images/webfailsafe-xg040g-md-t71.webp)
+
+*UrsusBoot 0.1.0-alpha5-t71 on a Nokia XG-040G-MD (AN7581, SkyHigh SPI-NAND) right after a verified Nokia STOCK -> OpenWrt UBI migration (UrsusFlasher ONE-KEY): every migration step OK, diagnostics report the volumes as verified by the migration, and after **Reboot into OpenWrt** the open tab notices the router has left UrsusBoot.*
+
+Layout:
 
 ```text
 +-----------------------------------------------------------+
