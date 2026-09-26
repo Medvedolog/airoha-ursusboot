@@ -2235,6 +2235,11 @@ static err_t ursus_route_ready(struct tcp_pcb *pcb, struct ursus_conn *c)
      * Keep other HTTP requests from re-entering UBI/flash diagnostics while
      * that command owns the recovery control plane.
      */
+    if (ursus_schedule_poll_active()) {
+        return ursus_http_start_response(pcb, c, 409, "application/json",
+            "{\"result\":\"REJECTED\",\"reason_class\":\"OPERATION_LOCKED\",\"reason\":\"flash operation is servicing the network; retry shortly\"}\n");
+    }
+
     if (ursus_ws_is_active()) {
         if (URSUS_REQ_MATCH(c->reqhdr, "GET /ws-console.html "))
             return ursus_http_start_response(pcb, c, 200, "text/html; charset=utf-8", ursus_ws_page);
