@@ -83,6 +83,7 @@ struct ursus_ws_state {
 static struct ursus_ws_state ursus_ws;
 static bool ursus_ws_stdio_registered;
 static bool ursus_ws_pumping;
+static bool ursus_schedule_pumping;
 static ulong ursus_ws_last_schedule_poll;
 
 static size_t ursus_ws_ring_used(size_t head, size_t tail, size_t size)
@@ -236,12 +237,27 @@ static void ursus_ws_network_pump(void)
  * into a throttled lwIP service point without enabling CONFIG_CYCLIC. */
 void board_schedule_poll(void)
 {
-    if (!ursus_ws.active || ursus_ws_pumping || !ursus_web_udev || !ursus_web_netif)
+    if (!ursus_web_running || ursus_ws_pumping || ursus_schedule_pumping ||
+        !ursus_web_udev || !ursus_web_netif)
         return;
     if (get_timer(ursus_ws_last_schedule_poll) < URSUS_WS_POLL_MS)
         return;
+
+    /*
+     * schedule() is already reached between SPI-NAND pages/eraseblocks and
+     * from UBI's lower MTD I/O. Service lwIP there so TCP ACKs/timers keep
+     * moving during long flash work. New HTTP control requests are rejected
+     * while this cooperative poll is active to avoid re-entering UBI/status.
+     */
     ursus_ws_last_schedule_poll = get_timer(0);
+    ursus_schedule_pumping = true;
     ursus_ws_network_pump();
+    ursus_schedule_pumping = false;
+}
+
+static bool ursus_schedule_poll_active(void)
+{
+    return ursus_schedule_pumping;
 }
 
 static void ursus_ws_stdio_putc(struct stdio_dev *dev, const char ch)
