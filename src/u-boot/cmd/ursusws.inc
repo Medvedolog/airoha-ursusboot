@@ -14,6 +14,33 @@
 #define URSUS_WS_TX_CHUNK      512
 #define URSUS_WS_GUID          "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
+
+static const char ursus_ws_page[] =
+"<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+"<title>UrsusBoot Live Console</title><style>body{margin:0;background:#171009;color:#f2e8da;font:14px system-ui}"
+"main{max-width:1050px;margin:auto;padding:16px}h1{font-size:20px}.bar{display:flex;gap:8px;align-items:center;margin:10px 0}"
+"button{background:#d99a4d;border:0;border-radius:7px;padding:8px 12px;font-weight:700;cursor:pointer}"
+"#st{color:#a89179}pre{height:70vh;overflow:auto;background:#120c07;border:1px solid #4a3728;border-radius:9px;padding:12px;"
+"white-space:pre-wrap;word-break:break-word;font:12px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;outline:none}"
+".warn{color:#d6a76b;font-size:12px}</style></head><body><main><h1>UrsusBoot · Live UART/WebSocket console</h1>"
+"<div class=\"bar\"><button id=\"c\">Connect</button><span id=\"st\">disconnected</span></div>"
+"<div class=\"warn\">EXPERT: real U-Boot stdin/stdout/stderr. Physical UART stays active. Flash commands are not filtered.</div>"
+"<pre id=\"o\" tabindex=\"0\">Click Connect, then focus this terminal.\n</pre>"
+"<script>let w=null;const o=document.getElementById('o'),st=document.getElementById('st'),b=document.getElementById('c');"
+"const dec=new TextDecoder();function wr(s){s=s.replace(/\\x1b\\[[0-9;?]*[ -\\/]*[@-~]/g,'');let t=o.textContent;"
+"for(const ch of s){if(ch==='\\b')t=t.slice(0,-1);else if(ch==='\\r'){}else t+=ch}o.textContent=t;o.scrollTop=o.scrollHeight}"
+"function send(s){if(w&&w.readyState===1)w.send(s)}function connect(){if(w){w.close();return}const p=location.protocol==='https:'?'wss://':'ws://';"
+"w=new WebSocket(p+location.host+'/ws/console');w.binaryType='arraybuffer';st.textContent='connecting';"
+"w.onopen=()=>{st.textContent='connected';b.textContent='Disconnect';o.focus()};"
+"w.onmessage=e=>wr(typeof e.data==='string'?e.data:dec.decode(e.data));"
+"w.onerror=()=>{st.textContent='error'};w.onclose=()=>{w=null;st.textContent='disconnected';b.textContent='Connect'}}"
+"b.onclick=connect;o.addEventListener('keydown',e=>{if(!w||w.readyState!==1)return;let s=null;"
+"if(e.ctrlKey&&(e.key==='c'||e.key==='C'))s='\\x03';else if(e.ctrlKey&&(e.key==='u'||e.key==='U'))s='\\x15';"
+"else if(e.key==='Enter')s='\\r';else if(e.key==='Backspace')s='\\x08';else if(e.key==='Tab')s='\\t';"
+"else if(e.key.length===1&&!e.altKey&&!e.metaKey)s=e.key;if(s!==null){e.preventDefault();send(s)}});"
+"o.addEventListener('paste',e=>{if(!w||w.readyState!==1)return;e.preventDefault();send(e.clipboardData.getData('text').replace(/\\r?\\n/g,'\\r'))});"
+"</script></main></body></html>";
+
 struct ursus_ws_state {
     bool active;
     bool stdio_attached;
@@ -596,7 +623,14 @@ static void ursus_ws_service(void)
 
 static void ursus_ws_shutdown(void)
 {
-    if (ursus_ws.active && ursus_ws.pcb)
+    struct tcp_pcb *pcb = ursus_ws.pcb;
+    struct ursus_conn *c = ursus_ws.conn;
+
+    if (ursus_ws.active && pcb)
         ursus_ws_protocol_close(1001);
+    if (pcb && c) {
+        ursus_conn_release(pcb, c, true);
+        return;
+    }
     ursus_ws_detach(NULL);
 }
