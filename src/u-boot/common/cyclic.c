@@ -22,6 +22,13 @@ DECLARE_GLOBAL_DATA_PTR;
 
 void hw_watchdog_reset(void);
 
+/* Boards may use the existing scheduler yield points for tiny cooperative
+ * service work. Default is deliberately empty; Ursus WebFailsafe overrides
+ * this only while its live WebSocket console is attached. */
+__weak void board_schedule_poll(void)
+{
+}
+
 struct hlist_head *cyclic_get_list(void)
 {
 	/* Silence "discards 'volatile' qualifier" warning. */
@@ -119,6 +126,7 @@ void schedule(void)
 	if (gd)
 		cyclic_run();
 
+	board_schedule_poll();
 	uthread_schedule();
 }
 
