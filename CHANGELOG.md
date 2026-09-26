@@ -31,6 +31,11 @@ Nokia bootloader window (`scripts/ci/check_bl33_budget.py`). At t71 MF used
   explicit (FIP validation) - it used to arrive only via UBIFS on MF.
 - Local builds with the real fragment pipeline (LZMA BL33): MD 299889 ->
   266162 (-33 KiB, ~60 KiB free), MF 320001 -> 263685 (-55 KiB, ~68 KiB free).
+- WebFailsafe diagnostics show the UBI layout: a *UBI volumes* row lists
+  every user volume (id, name, used / reserved size, static marker) and the
+  free PEB count — the number that decides whether `fip.new` fits. Status
+  JSON gains `ubi_vols` ([name,id,reserved_pebs,used_bytes,type]). Shown only
+  while UBI is attached; cost < 1 KiB of LZMA BL33.
 - Environment reset keeps `ethaddr` always (a device property);
   `rootfs_data_max` only when migrating an UrsusBoot env. `ursus_env_rev=73`
   (t72 envs are migrated).

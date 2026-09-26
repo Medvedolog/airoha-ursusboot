@@ -459,7 +459,7 @@ static void ursus_ubi_fill_volume_diag(const char *name,
 int ursus_ubi_probe_diag(struct ursus_ubi_diag *diag)
 {
     struct ubi_device *ubi;
-    int ret;
+    int i, ret;
 
     if (!diag)
         return -EINVAL;
@@ -484,6 +484,19 @@ int ursus_ubi_probe_diag(struct ursus_ubi_diag *diag)
     diag->corrupt_pebs = ubi->corr_peb_count;
     diag->free_pebs = ubi->avail_pebs;
     diag->leb_size = ubi->leb_size;
+    for (i = 0; i < ubi->vtbl_slots && diag->vol_count < URSUS_UBI_DIAG_MAX_VOLS; i++) {
+        struct ubi_volume *vol = ubi->volumes[i];
+        struct ursus_ubi_vol_brief *b = &diag->vols[diag->vol_count];
+
+        if (!vol)
+            continue;
+        snprintf(b->name, sizeof(b->name), "%s", vol->name);
+        b->id = vol->vol_id;
+        b->type = vol->vol_type;
+        b->reserved_pebs = vol->reserved_pebs;
+        b->used_bytes = vol->used_bytes;
+        diag->vol_count++;
+    }
     ursus_ubi_fill_volume_diag("fip", &diag->fip, true);
     ursus_ubi_fill_volume_diag("fit", &diag->fit, false);
     ursus_ubi_fill_volume_diag("fit.old", &diag->fit_old, false);

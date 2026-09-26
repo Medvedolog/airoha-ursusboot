@@ -16,6 +16,17 @@ struct ursus_ubi_volume_diag {
     unsigned int reserved_pebs;
 };
 
+#define URSUS_UBI_DIAG_MAX_VOLS 16
+
+/* One user volume, for the WebFailsafe layout table. */
+struct ursus_ubi_vol_brief {
+    char name[24];
+    int id;
+    int type;
+    unsigned int reserved_pebs;
+    unsigned long long used_bytes;
+};
+
 struct ursus_ubi_diag {
     bool attached;
     unsigned int peb_count;
@@ -27,6 +38,8 @@ struct ursus_ubi_diag {
     struct ursus_ubi_volume_diag fip;
     struct ursus_ubi_volume_diag fit;
     struct ursus_ubi_volume_diag fit_old;
+    unsigned int vol_count;
+    struct ursus_ubi_vol_brief vols[URSUS_UBI_DIAG_MAX_VOLS];
 };
 
 int ursus_ubi_boot(void);

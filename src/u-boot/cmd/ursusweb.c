@@ -1542,6 +1542,38 @@ static const char *ursus_ubi_vol_type_name(int type)
            type == UBI_DYNAMIC_VOLUME ? "dynamic" : "unknown";
 }
 
+/* Layout table: "ubi_vols":[[name,id,reserved_pebs,used_bytes,type],...]
+ * spliced in before the closing brace of the status object. */
+static void ursus_status_append_ubi_vols(void)
+{
+    size_t len = strlen(ursus_status_body), room;
+    char *end = strrchr(ursus_status_body, '}');
+    unsigned int i;
+    int n;
+
+    if (!end || !ursus_ubi_diag.vol_count)
+        return;
+    len = end - ursus_status_body;
+    room = sizeof(ursus_status_body) - len;
+    n = snprintf(ursus_status_body + len, room, ",\"ubi_vols\":[");
+    for (i = 0; i < ursus_ubi_diag.vol_count && n > 0 && (size_t)n < room; i++) {
+        const struct ursus_ubi_vol_brief *v = &ursus_ubi_diag.vols[i];
+        char name[sizeof(v->name)];
+        unsigned int j;
+
+        for (j = 0; v->name[j] && j < sizeof(name) - 1; j++)
+            name[j] = (v->name[j] == '"' || v->name[j] == '\\' ||
+                       (unsigned char)v->name[j] < 0x20) ? '_' : v->name[j];
+        name[j] = 0;
+        n += snprintf(ursus_status_body + len + n, room - n, "%s[\"%s\",%d,%u,%llu,%d]",
+                      i ? "," : "", name, v->id, v->reserved_pebs, v->used_bytes, v->type);
+    }
+    if (n > 0 && (size_t)n + 3 < room)
+        snprintf(ursus_status_body + len + n, room - n, "]}\n");
+    else
+        snprintf(ursus_status_body + len, room, "}\n");  /* keep the object valid */
+}
+
 static void ursus_build_status(void)
 {
     const char *state = ursus_img.type == URSUS_IMG_NONE ? "IDLE" :
@@ -1727,6 +1759,7 @@ static void ursus_build_status(void)
              operation, op_active ? "true" : "false", op_complete ? "true" : "false", op_failed ? "true" : "false",
              op_stage, op_percent, op_detail, op_error,
              op_failed_stage, op_last_success, op_error_code, op_transaction);
+    ursus_status_append_ubi_vols();
 }
 
 static void ursus_build_plan_reply(int ret)

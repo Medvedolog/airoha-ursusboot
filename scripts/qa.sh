@@ -153,6 +153,10 @@ grep -qx 'ursus_env_rev=73' "$ROOT/config/an7583_nokia_xg-040g-mf_RUNTIME_env"
 BUDGET_TMP="$(mktemp -d)"; cp "$ROOT/reference/md/ursusboot-test61-update.fip" "$BUDGET_TMP/ursusboot-update.fip"
 python3 "$ROOT/scripts/ci/check_bl33_budget.py" xg040-md "$BUDGET_TMP" | grep -q '^BL33_BUDGET board=xg040-md '
 rm -rf "$BUDGET_TMP"
+# t73: UBI volume table in WebFailsafe diagnostics.
+grep -q 'ursus_status_append_ubi_vols();' "$ROOT/src/u-boot/cmd/ursusweb.c"
+grep -q 'struct ursus_ubi_vol_brief vols\[URSUS_UBI_DIAG_MAX_VOLS\];' "$ROOT/src/u-boot/include/ursus_ubi.h"
+grep -q 'ubiVolsRow' "$ROOT/src/u-boot/include/ursusweb_ui.inc"
 # MAC identity must be refreshed before autoboot on both current Nokia profiles.
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/u-boot.TEST61.full.config"
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/an7583_nokia_xg-040g-mf_MF2_RAM_defconfig"
