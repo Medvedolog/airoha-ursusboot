@@ -113,7 +113,13 @@ static void ursus_ws_tx_push(u8 ch)
         return;
     next = (ursus_ws.tx_head + 1) % sizeof(ursus_ws.tx);
     if (next == ursus_ws.tx_tail) {
+        /*
+         * Never silently corrupt a live terminal transcript.  The physical
+         * UART still receives the full output; terminate only the WebSocket
+         * side and let the operator reconnect.
+         */
         ursus_ws.tx_dropped++;
+        ursus_ws.close_requested = true;
         return;
     }
     ursus_ws.tx[ursus_ws.tx_head] = ch;
