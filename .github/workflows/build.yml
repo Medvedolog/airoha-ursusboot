@@ -7,7 +7,7 @@ name: Build
 
 on:
   push:
-    branches: [main, 'test*', 'dev/websocket-uart-t73']
+    branches: [main, 'test*']
   pull_request:
   workflow_dispatch:
 
