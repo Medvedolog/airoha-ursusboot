@@ -545,6 +545,24 @@ static err_t ursus_ws_poll(void *arg, struct tcp_pcb *pcb)
     return ERR_OK;
 }
 
+static bool ursus_ws_origin_ok(const char *req)
+{
+    char host[96], origin[128], expected[128];
+    size_t n;
+
+    if (!ursus_parse_header_value(req, "Host", host, sizeof(host)) ||
+        !ursus_parse_header_value(req, "Origin", origin, sizeof(origin)))
+        return false;
+
+    n = strlen(host);
+    if (n > 3 && !strcmp(host + n - 3, ":80"))
+        host[n - 3] = '\0';
+
+    if (snprintf(expected, sizeof(expected), "http://%s", host) <= 0)
+        return false;
+    return !strcmp(origin, expected);
+}
+
 static err_t ursus_ws_upgrade(struct tcp_pcb *pcb, struct ursus_conn *c)
 {
     char key[96], version[16], upgrade[32];
@@ -556,6 +574,9 @@ static err_t ursus_ws_upgrade(struct tcp_pcb *pcb, struct ursus_conn *c)
     if (ursus_ws.active)
         return ursus_http_start_response(pcb, c, 409, "text/plain; charset=utf-8",
             "another live WebSocket console is already attached\n");
+    if (!ursus_ws_origin_ok(c->reqhdr))
+        return ursus_http_start_response(pcb, c, 403, "text/plain; charset=utf-8",
+            "WebSocket Origin must match the recovery page Host\n");
     if (!ursus_parse_header_value(c->reqhdr, "Upgrade", upgrade, sizeof(upgrade)) ||
         strcasecmp(upgrade, "websocket") ||
         !ursus_parse_header_value(c->reqhdr, "Sec-WebSocket-Version",
