@@ -1,6 +1,6 @@
 # UrsusBoot
 
-[Русская версия / Russian version](README.ru.md)
+[Русская версия / Russian version](README.ru.md) · [中文版 / Chinese version](README.zh-CN.md)
 
 **Compact OpenWrt-aware recovery and installation U-Boot for Airoha router platforms.**
 
