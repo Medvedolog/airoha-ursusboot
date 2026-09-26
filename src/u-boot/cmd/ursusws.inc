@@ -532,8 +532,10 @@ static err_t ursus_ws_poll(void *arg, struct tcp_pcb *pcb)
     if (!c || !c->websocket || ursus_ws.pcb != pcb)
         return ERR_OK;
     ursus_ws_flush_tx();
-    if (ursus_ws.close_requested)
+    if (ursus_ws.close_requested) {
+        ursus_conn_release(pcb, c, true);
         return ERR_ABRT;
+    }
     return ERR_OK;
 }
 
@@ -616,9 +618,21 @@ static err_t ursus_ws_upgrade(struct tcp_pcb *pcb, struct ursus_conn *c)
 
 static void ursus_ws_service(void)
 {
+    struct tcp_pcb *pcb;
+    struct ursus_conn *c;
+
     if (!ursus_ws.active)
         return;
     ursus_ws_flush_tx();
+    if (!ursus_ws.close_requested)
+        return;
+
+    pcb = ursus_ws.pcb;
+    c = ursus_ws.conn;
+    if (pcb && c)
+        ursus_conn_release(pcb, c, true);
+    else
+        ursus_ws_detach(NULL);
 }
 
 static void ursus_ws_shutdown(void)
