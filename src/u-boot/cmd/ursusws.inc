@@ -595,7 +595,6 @@ static err_t ursus_ws_upgrade(struct tcp_pcb *pcb, struct ursus_conn *c)
 {
     char key[96], version[16], upgrade[32], protocol[96];
     char seed[192], accept[48], response[320];
-    bool protocol_ok = false;
     u8 digest[SHA1_SUM_LEN];
     int n, ret;
     err_t err;
@@ -616,9 +615,11 @@ static err_t ursus_ws_upgrade(struct tcp_pcb *pcb, struct ursus_conn *c)
         return ursus_http_start_response(pcb, c, 400, "text/plain; charset=utf-8",
             "invalid WebSocket upgrade request\n");
 
-    if (ursus_parse_header_value(c->reqhdr, "Sec-WebSocket-Protocol", protocol, sizeof(protocol)) &&
-        strstr(protocol, URSUS_WS_PROTOCOL))
-        protocol_ok = true;
+    if (!ursus_parse_header_value(c->reqhdr, "Sec-WebSocket-Protocol",
+                                  protocol, sizeof(protocol)) ||
+        strcmp(protocol, URSUS_WS_PROTOCOL))
+        return ursus_http_start_response(pcb, c, 400, "text/plain; charset=utf-8",
+            "Sec-WebSocket-Protocol must be " URSUS_WS_PROTOCOL "\n");
 
     n = snprintf(seed, sizeof(seed), "%s%s", key, URSUS_WS_GUID);
     if (n <= 0 || n >= sizeof(seed))
@@ -644,9 +645,8 @@ static err_t ursus_ws_upgrade(struct tcp_pcb *pcb, struct ursus_conn *c)
         "Upgrade: websocket\r\n"
         "Connection: Upgrade\r\n"
         "Sec-WebSocket-Accept: %s\r\n"
-        "%s"
-        "Cache-Control: no-store\r\n\r\n", accept,
-        protocol_ok ? "Sec-WebSocket-Protocol: " URSUS_WS_PROTOCOL "\r\n" : "");
+        "Sec-WebSocket-Protocol: " URSUS_WS_PROTOCOL "\r\n"
+        "Cache-Control: no-store\r\n\r\n", accept);
     if (n <= 0 || n >= sizeof(response) || tcp_sndbuf(pcb) < n) {
         ursus_ws_detach(c);
         return ERR_MEM;
