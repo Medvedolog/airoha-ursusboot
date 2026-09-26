@@ -157,6 +157,38 @@ rm -rf "$BUDGET_TMP"
 grep -q 'ursus_status_append_ubi_vols();' "$ROOT/src/u-boot/cmd/ursusweb.c"
 grep -q 'struct ursus_ubi_vol_brief vols\[URSUS_UBI_DIAG_MAX_VOLS\];' "$ROOT/src/u-boot/include/ursus_ubi.h"
 grep -q 'ubiVolsRow' "$ROOT/src/u-boot/include/ursusweb_ui.inc"
+# t73 WS experiment: keep live stdio cheap and cooperative without restoring
+# generic partition/NAND tooling removed by the size diet.
+grep -q 'board_schedule_poll();' "$ROOT/src/u-boot/common/cyclic.c"
+grep -q '^void board_schedule_poll(void)' "$ROOT/src/u-boot/cmd/ursusws.inc"
+grep -q 'URSUS_WS_POLL_MS       5UL' "$ROOT/src/u-boot/cmd/ursusws.inc"
+grep -q 'ursus_ws_network_pump' "$ROOT/src/u-boot/cmd/ursusws.inc"
+grep -q 'net_lwip_rx(ursus_web_udev, ursus_web_netif)' "$ROOT/src/u-boot/cmd/ursusws.inc"
+grep -q 'ursusboot-console-v1' "$ROOT/src/u-boot/cmd/ursusws.inc"
+grep -q 'URSUS_WS_HELLO protocol=1 product=UrsusBoot transport=live-stdio' "$ROOT/src/u-boot/cmd/ursusws.inc"
+grep -q 'ursus_status_append_stock_parts();' "$ROOT/src/u-boot/cmd/ursusweb.c"
+grep -q 'stockPartsRow' "$ROOT/src/u-boot/include/ursusweb_ui.inc"
+ROOT="$ROOT" python3 - <<'PY'
+import os, re
+from pathlib import Path
+r=Path(os.environ["ROOT"])
+spin=(r/"src/u-boot/drivers/mtd/nand/spi/core.c").read_text()
+nand=(r/"src/u-boot/drivers/mtd/nand/core.c").read_text()
+ws=(r/"src/u-boot/cmd/ursusws.inc").read_text()
+web=(r/"src/u-boot/cmd/ursusweb.c").read_text()
+size=(r/"config/ursusboot-size.cfg").read_text()
+assert re.search(r'nanddev_io_for_each_page\(nand, NAND_PAGE_READ,.*?\{\s*schedule\(\);', spin, re.S)
+assert re.search(r'nanddev_io_for_each_page\(nand, NAND_PAGE_WRITE,.*?\{\s*schedule\(\);', spin, re.S)
+assert re.search(r'while \(nanddev_pos_cmp\(&pos, &last\) <= 0\) \{\s*schedule\(\);', nand, re.S)
+assert "if (!ursus_ws.active || ursus_ws_pumping" in ws
+assert "static const struct ursus_stock_part_diag ursus_stock_parts[]" in web
+for name in ("bootloader","romfile","nsb_master","nsb_slave","bosa","ri","flag","flagback","config","data","oopsfs","log"):
+    assert f'{{ "{name}"' in web, name
+# The diagnostics work must not buy space by undoing the t72/t73 diet.
+for sym in ("CONFIG_CMD_UBIFS","CONFIG_CMD_GPT","CONFIG_CMD_PART","CONFIG_SYS_LONGHELP","CONFIG_SHA512"):
+    assert f"# {sym} is not set" in size, sym
+print("T73 WS yield + stock-map + size-diet regression guards: PASS")
+PY
 # MAC identity must be refreshed before autoboot on both current Nokia profiles.
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/u-boot.TEST61.full.config"
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/an7583_nokia_xg-040g-mf_MF2_RAM_defconfig"
