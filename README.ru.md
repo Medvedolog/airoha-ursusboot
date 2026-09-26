@@ -1,6 +1,6 @@
 # UrsusBoot
 
-Версия на английском: README.md
+[English version](README.md) · [中文版](README.zh-CN.md)
 
 Компактный U-Boot для установки OpenWrt и восстановления роутеров на платформе Airoha.
 
