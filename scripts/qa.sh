@@ -181,7 +181,9 @@ size=(r/"config/ursusboot-size.cfg").read_text()
 assert re.search(r'nanddev_io_for_each_page\(nand, NAND_PAGE_READ,.*?\{\s*schedule\(\);', spin, re.S)
 assert re.search(r'nanddev_io_for_each_page\(nand, NAND_PAGE_WRITE,.*?\{\s*schedule\(\);', spin, re.S)
 assert re.search(r'while \(nanddev_pos_cmp\(&pos, &last\) <= 0\) \{\s*schedule\(\);', nand, re.S)
-assert "if (!ursus_ws.active || ursus_ws_pumping" in ws
+assert "if (!ursus_web_running || ursus_ws_pumping || ursus_schedule_pumping" in ws
+assert "ursus_schedule_pumping = true;" in ws and "ursus_schedule_pumping = false;" in ws
+assert "flash operation is servicing the network; retry shortly" in web
 assert "static const struct ursus_stock_part_diag ursus_stock_parts[]" in web
 for name in ("bootloader","romfile","nsb_master","nsb_slave","bosa","ri","flag","flagback","config","data","oopsfs","log"):
     assert f'{{ "{name}"' in web, name
