@@ -2138,6 +2138,21 @@ static int ursus_console_capture_selftest(void)
 static err_t ursus_route_ready(struct tcp_pcb *pcb, struct ursus_conn *c)
 {
     int ret;
+
+    /*
+     * A live WebSocket console may be inside a command which services lwIP
+     * from its stdin/getc path.  Do not re-enter status/UBI/flash probing from
+     * a second HTTP connection while that command is running.
+     */
+    if (ursus_ws_is_active()) {
+        if (URSUS_REQ_MATCH(c->reqhdr, "GET /ws-console.html "))
+            return ursus_http_start_response(pcb, c, 200, "text/html; charset=utf-8", ursus_ws_page);
+        if (URSUS_REQ_MATCH(c->reqhdr, "GET /ws/console "))
+            return ursus_ws_upgrade(pcb, c);
+        return ursus_http_start_response(pcb, c, 409, "application/json",
+            "{\"result\":\"REJECTED\",\"reason_class\":\"OPERATION_LOCKED\",\"reason\":\"live WebSocket console owns the control plane; disconnect it first\"}\n");
+    }
+
     ursus_build_status();
 
     if (URSUS_REQ_MATCH(c->reqhdr, "GET /logo.svg "))
@@ -2153,9 +2168,6 @@ static err_t ursus_route_ready(struct tcp_pcb *pcb, struct ursus_conn *c)
         return ursus_http_start_response(pcb, c, 200, "text/html; charset=utf-8", ursus_ws_page);
     if (URSUS_REQ_MATCH(c->reqhdr, "GET /ws/console "))
         return ursus_ws_upgrade(pcb, c);
-    if (ursus_ws_is_active() && !strncmp(c->reqhdr, "POST ", 5))
-        return ursus_http_start_response(pcb, c, 409, "application/json",
-            "{\"result\":\"REJECTED\",\"reason_class\":\"OPERATION_LOCKED\",\"reason\":\"live WebSocket console owns the control plane; disconnect it first\"}\n");
     if (URSUS_REQ_MATCH(c->reqhdr, "POST /api/console ")) {
         char encoded[512], cmd[256];
 
