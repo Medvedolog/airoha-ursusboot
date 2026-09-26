@@ -2149,6 +2149,8 @@ static err_t ursus_route_ready(struct tcp_pcb *pcb, struct ursus_conn *c)
     if (URSUS_REQ_MATCH(c->reqhdr, "GET /api/log ") ||
         URSUS_REQ_MATCH(c->reqhdr, "GET /api/operation-log "))
         return ursus_http_start_response(pcb, c, 200, "text/plain; charset=utf-8", ursus_web_log);
+    if (URSUS_REQ_MATCH(c->reqhdr, "GET /ws-console.html "))
+        return ursus_http_start_response(pcb, c, 200, "text/html; charset=utf-8", ursus_ws_page);
     if (URSUS_REQ_MATCH(c->reqhdr, "GET /ws/console "))
         return ursus_ws_upgrade(pcb, c);
     if (ursus_ws_is_active() && !strncmp(c->reqhdr, "POST ", 5))
