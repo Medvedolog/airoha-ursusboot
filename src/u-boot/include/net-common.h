@@ -557,6 +557,11 @@ int do_sntp(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[]);
  */
 int do_tftpb(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[]);
 
+#ifdef CONFIG_CMD_TFTPPUT
+/** Send an explicitly selected RAM range to a TFTP server. */
+int do_tftpput(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[]);
+#endif
+
 /**
  * wget_do_request() - sends a wget request
  *
