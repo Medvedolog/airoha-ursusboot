@@ -265,6 +265,8 @@ resend_data(const ip_addr_t *addr, u16_t port)
   return ret;
 }
 
+static u16_t payload_size(void);
+
 static void
 send_data(const ip_addr_t *addr, u16_t port)
 {
@@ -275,14 +277,14 @@ send_data(const ip_addr_t *addr, u16_t port)
     pbuf_free(tftp_state.last_data);
   }
 
-  tftp_state.last_data = init_packet(TFTP_DATA, tftp_state.blknum, TFTP_DEFAULT_BLOCK_SIZE);
+  tftp_state.last_data = init_packet(TFTP_DATA, tftp_state.blknum, payload_size());
   if (tftp_state.last_data == NULL) {
     return;
   }
 
   payload = (u16_t *) tftp_state.last_data->payload;
 
-  ret = tftp_state.ctx->read(tftp_state.handle, &payload[2], TFTP_DEFAULT_BLOCK_SIZE);
+  ret = tftp_state.ctx->read(tftp_state.handle, &payload[2], payload_size());
   if (ret < 0) {
     send_error(addr, port, TFTP_ERROR_ACCESS_VIOLATION, "Error occurred while reading the file.");
     close_handle();
@@ -372,8 +374,18 @@ tftp_recv(void *arg, struct udp_pcb *upcb, struct pbuf *p, const ip_addr_t *addr
   tftp_state.last_pkt = tftp_state.timer;
   tftp_state.retries = 0;
 
-  if (tftp_req.fname)
+  if (tftp_req.fname) {
+    /* The first reply binds the server transfer ID; subsequent DATA retries
+     * must target that UDP port, not the WRQ destination or port zero. */
+    if (!ip_addr_eq(&tftp_req.addr, addr)) {
+      pbuf_free(p);
+      return;
+    }
     clear_req();
+    ip_addr_copy(tftp_state.addr, *addr);
+    tftp_state.port = port;
+    sys_timeout(TFTP_TIMER_MSECS, tftp_tmr, NULL);
+  }
 
   switch (opcode) {
     case PP_HTONS(TFTP_RRQ): /* fall through */
@@ -565,7 +577,10 @@ tftp_recv(void *arg, struct udp_pcb *upcb, struct pbuf *p, const ip_addr_t *addr
 	LWIP_DEBUGF(TFTP_DEBUG | LWIP_DBG_STATE, ("tftp: accepting tsize=%d\n", srv_tsize));
 	tftp_state.tsize = srv_tsize;
       }
-      send_ack(addr, port, 0);
+      if (tftp_state.mode_write)
+        send_ack(addr, port, 0);
+      else
+        send_data(addr, port);
       break;
     }
     default:
