@@ -596,6 +596,7 @@ tftp_tmr(void *arg)
       tftp_state.retries++;
     } else {
       LWIP_DEBUGF(TFTP_DEBUG | LWIP_DBG_STATE, ("tftp: timeout\n"));
+      tftp_state.ctx->error(tftp_state.handle, -1, "Data timeout", strlen("Data timeout"));
       close_handle();
     }
   }

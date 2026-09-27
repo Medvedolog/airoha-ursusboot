@@ -11,6 +11,19 @@ Evidence labels used here:
 
 **QA PASS and BUILD PASS are not HW PASS.**
 
+## 0.1.0-alpha5-t75 (branch `test75-tftpput`)
+
+- `tftpput <RAM-address> <size-hex> <PC-IP>:<filename>` sends a specified RAM
+  range to a PC TFTP server. This is a deliberate expert command, not an
+  automatic NAND dump or a WebFailsafe HTTP download. The operator must first
+  place the exact bytes in RAM and know their length. No flash is written.
+- The lwIP backend implements the command for both MD and MF. Its TFTP client
+  borrows the live WebFailsafe netif when entered over the WebSocket console,
+  without stopping Ethernet on return. An exhausted data retry is reported as
+  failure rather than as a successful transfer. Profile contracts require
+  `CONFIG_CMD_TFTPPUT` and the compiled command name.
+- **SOURCE. QA/BUILD/HW pending until the corresponding exact runs.**
+
 ## 0.1.0-alpha5-t73 (branch `test63`)
 
 BL33 size diet: UrsusBoot lives in BL33 and on the stock layout must fit the

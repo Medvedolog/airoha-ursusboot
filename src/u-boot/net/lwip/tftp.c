@@ -30,6 +30,9 @@ enum done_state {
 struct tftp_ctx {
 	ulong daddr;
 	ulong size;
+	ulong send_size;
+	ulong send_addr;
+	bool sending;
 	ulong block_count;
 	ulong hash_count;
 	ulong start_time;
@@ -107,7 +110,7 @@ static void tftp_close(void *handle)
 	}
 	ctx->done = SUCCESS;
 
-	tftp_tsize = tftp_client_get_tsize();
+	tftp_tsize = ctx->sending ? ctx->send_size : tftp_client_get_tsize();
 	if (tftp_tsize) {
 		/* Print hash marks for the last packet received */
 		while (ctx->hash_count < 49) {
@@ -134,7 +137,24 @@ static void tftp_close(void *handle)
 
 static int tftp_read(void *handle, void *buf, int bytes)
 {
-	return 0;
+	struct tftp_ctx *ctx = handle;
+	ulong left;
+	void *src;
+
+	if (!ctx->sending || bytes < 0)
+		return -1;
+	left = ctx->send_size - ctx->size;
+	if (!left)
+		return 0;
+	bytes = min_t(ulong, bytes, left);
+	src = map_sysmem(ctx->send_addr + ctx->size, bytes);
+	memcpy(buf, src, bytes);
+	unmap_sysmem(src);
+	ctx->size += bytes;
+	ctx->block_count++;
+	if (!(ctx->block_count % 32))
+		putc('#');
+	return bytes;
 }
 
 static int tftp_write(void *handle, struct pbuf *p)
@@ -209,6 +229,9 @@ static int tftp_loop(struct udevice *udev, ulong addr, char *fname,
 
 	ctx.done = NOT_DONE;
 	ctx.size = 0;
+	ctx.send_size = 0;
+	ctx.send_addr = 0;
+	ctx.sending = false;
 	ctx.block_count = 0;
 	ctx.hash_count = 0;
 	ctx.daddr = addr;
@@ -267,6 +290,101 @@ static int tftp_loop(struct udevice *udev, ulong addr, char *fname,
 
 	return -1;
 }
+
+#ifdef CONFIG_CMD_TFTPPUT
+/* Send an explicit RAM range to a PC TFTP server.  Reuse the WebFailsafe
+ * netif when the command is entered through the live WebSocket console. */
+int do_tftpput(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
+{
+	struct tftp_ctx ctx = { .done = NOT_DONE, .sending = true };
+	struct udevice *udev;
+	struct netif *netif;
+	bool borrowed, started = false;
+	ip_addr_t srvip;
+	char *target, *colon, *end;
+	ulong addr, size;
+	err_t err;
+	int ret = CMD_RET_FAILURE;
+
+	if (argc != 4)
+		return CMD_RET_USAGE;
+	addr = hextoul(argv[1], &end);
+	if (*end || !addr)
+		return CMD_RET_USAGE;
+	size = hextoul(argv[2], &end);
+	if (*end || !size || addr + size < addr)
+		return CMD_RET_USAGE;
+	target = strdup(argv[3]);
+	if (!target)
+		return CMD_RET_FAILURE;
+	colon = strchr(target, ':');
+	if (!colon || colon == target || !colon[1]) {
+		ret = CMD_RET_USAGE;
+		goto out;
+	}
+	*colon++ = '\0';
+	if (!ipaddr_aton(target, &srvip)) {
+		printf("Invalid TFTP server IP: %s\n", target);
+		goto out;
+	}
+
+	borrowed = !!net_lwip_get_netif();
+	if (!borrowed) {
+		if (net_lwip_eth_start() < 0)
+			goto out;
+		started = true;
+	}
+	udev = eth_get_dev();
+	netif = net_lwip_get_netif();
+	if (netif) {
+		if (netif->state != udev)
+			goto stop;
+	} else {
+		netif = net_lwip_new_netif(udev);
+		if (!netif)
+			goto stop;
+	}
+	ctx.send_addr = addr;
+	ctx.send_size = size;
+	ctx.start_time = get_timer(0);
+	printf("TFTP to %s: %s, RAM 0x%lx + 0x%lx\nSending: ",
+	       target, colon, addr, size);
+	err = tftp_init_client(&tftp_context);
+	if (err != ERR_OK && err != ERR_USE) {
+		printf("tftp_init_client() error %d\n", err);
+		goto remove;
+	}
+	err = tftp_put(&ctx, &srvip, TFTP_PORT, colon, TFTP_MODE_OCTET);
+	if (err != ERR_OK) {
+		printf("tftp_put() error %d\n", err);
+		goto cleanup;
+	}
+	sys_timeout(NO_RSP_TIMEOUT_MS, no_response, &ctx);
+	while (!ctx.done) {
+		net_lwip_rx(udev, netif);
+		if (ctrlc()) {
+			puts("\nAbort\n");
+			ctx.done = ABORTED;
+		}
+	}
+	sys_untimeout(no_response, &ctx);
+	if (ctx.done == SUCCESS && ctx.size == size)
+		ret = CMD_RET_SUCCESS;
+	else
+		printf("TFTP upload incomplete: %lu/%lu bytes\n", ctx.size, size);
+cleanup:
+	tftp_cleanup();
+remove:
+	if (!borrowed)
+		net_lwip_remove_netif(netif);
+stop:
+	if (started)
+		net_lwip_eth_stop();
+out:
+	free(target);
+	return ret;
+}
+#endif
 
 int do_tftpb(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 {

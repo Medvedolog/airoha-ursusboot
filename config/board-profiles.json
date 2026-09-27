@@ -49,6 +49,7 @@
         "CONFIG_MTD_UBI",
         "CONFIG_MTD_SPI_NAND",
         "CONFIG_CMD_TFTPBOOT",
+        "CONFIG_CMD_TFTPPUT",
         "CONFIG_CMD_WGET",
         "CONFIG_USE_PREBOOT",
         "CONFIG_ENV_OVERWRITE",
@@ -78,7 +79,8 @@
         "Nokia XG-040G-MD",
         "URSUS_UBI_MIGRATION_ENABLED=1",
         "FM25G01B",
-        "FM25G02B"
+        "FM25G02B",
+        "tftpput"
       ],
       "binary_forbid": [
         "Nokia XG-040G-MF"
@@ -138,6 +140,7 @@
         "CONFIG_CMD_MTD",
         "CONFIG_CMD_UBI",
         "CONFIG_CMD_TFTPBOOT",
+        "CONFIG_CMD_TFTPPUT",
         "CONFIG_NET_LWIP",
         "CONFIG_AIROHA_ETH",
         "CONFIG_PCS_AIROHA_AN7583",
@@ -182,7 +185,8 @@
         "AN7583DT",
         "URSUS_MAC_SOURCE=RI",
         "FM25G01B",
-        "FM25G02B"
+        "FM25G02B",
+        "tftpput"
       ],
       "binary_forbid": [
         "MF2 RAM-only build: persistent operations disabled",
