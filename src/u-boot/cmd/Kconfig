@@ -2285,6 +2285,14 @@ config CMD_TFTPBOOT
 	help
 	  tftpboot - load file via network using TFTP protocol
 
+config CMD_TFTPPUT
+	bool "tftpput"
+	depends on NET_LWIP && CMD_TFTPBOOT
+	select PROT_UDP_LWIP
+	help
+	  Send an explicit RAM range to a TFTP server using the lwIP client.
+	  The address and byte count are supplied by the operator.
+
 config CMD_WGET
 	bool "wget"
 	default y if SANDBOX || ARCH_QEMU
