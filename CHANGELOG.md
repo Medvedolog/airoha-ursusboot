@@ -13,7 +13,7 @@ Evidence labels used here:
 
 ## 0.1.0-alpha5-t75 (branch `test75-tftpput`)
 
-- `tftpput <RAM-address> <size-hex> <PC-IP>:<filename>` sends a specified RAM
+- `tftpput <RAM-address> <size-hex> <PC-IP>:[port:]<filename>` sends a specified RAM
   range to a PC TFTP server. This is a deliberate expert command, not an
   automatic NAND dump or a WebFailsafe HTTP download. The operator must first
   place the exact bytes in RAM and know their length. No flash is written.

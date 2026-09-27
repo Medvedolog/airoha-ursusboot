@@ -11,5 +11,5 @@ U_BOOT_CMD(tftpboot, 3, 0, do_tftpb,
 #ifdef CONFIG_CMD_TFTPPUT
 U_BOOT_CMD(tftpput, 4, 0, do_tftpput,
 	   "send RAM bytes to a TFTP server",
-	   "<address> <size-hex> <server-ip>:<filename>");
+	   "<address> <size-hex> <server-ip>:[port:]<filename>");
 #endif

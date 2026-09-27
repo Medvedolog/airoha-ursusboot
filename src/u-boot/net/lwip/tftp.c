@@ -301,8 +301,10 @@ int do_tftpput(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 	struct netif *netif;
 	bool borrowed, started = false;
 	ip_addr_t srvip;
-	char *target, *colon, *end;
+	char *target, *colon, *port_end, *end;
 	ulong addr, size;
+	ulong parsed_port;
+	u16 port = TFTP_PORT;
 	err_t err;
 	int ret = CMD_RET_FAILURE;
 
@@ -323,6 +325,17 @@ int do_tftpput(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 		goto out;
 	}
 	*colon++ = '\0';
+	port_end = strchr(colon, ':');
+	if (port_end) {
+		*port_end++ = '\0';
+		parsed_port = dectoul(colon, &end);
+		if (*end || !parsed_port || parsed_port > 65535 || !*port_end) {
+			ret = CMD_RET_USAGE;
+			goto out;
+		}
+		port = parsed_port;
+		colon = port_end;
+	}
 	if (!ipaddr_aton(target, &srvip)) {
 		printf("Invalid TFTP server IP: %s\n", target);
 		goto out;
@@ -347,14 +360,14 @@ int do_tftpput(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 	ctx.send_addr = addr;
 	ctx.send_size = size;
 	ctx.start_time = get_timer(0);
-	printf("TFTP to %s: %s, RAM 0x%lx + 0x%lx\nSending: ",
-	       target, colon, addr, size);
+	printf("TFTP to %s:%u: %s, RAM 0x%lx + 0x%lx\nSending: ",
+	       target, port, colon, addr, size);
 	err = tftp_init_client(&tftp_context);
 	if (err != ERR_OK && err != ERR_USE) {
 		printf("tftp_init_client() error %d\n", err);
 		goto remove;
 	}
-	err = tftp_put(&ctx, &srvip, TFTP_PORT, colon, TFTP_MODE_OCTET);
+	err = tftp_put(&ctx, &srvip, port, colon, TFTP_MODE_OCTET);
 	if (err != ERR_OK) {
 		printf("tftp_put() error %d\n", err);
 		goto cleanup;
