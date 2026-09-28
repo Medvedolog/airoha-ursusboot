@@ -43,8 +43,16 @@ RAM staging buffer nor a second transport.
 - UBI volume streaming is deliberately not in this step: `ubi_volume_read()`
   prints a line per call, so it needs a quiet variant first. MTD streaming
   already covers whole-chip and per-partition dumps.
-- **SOURCE. Exact QA/BUILD pending; HW PENDING.** No device has served a byte
-  through this path yet.
+- Review fixes before any device ran it: a client reset (closed tab, Ctrl-C)
+  left the MTD device pinned and the buffer lost because the `tcp_err` path
+  freed the connection without releasing the backup; and the range check
+  `offset + size > size` could wrap on u64 values from the query string. Both
+  are fixed and guarded in `scripts/qa.sh`.
+- Evidence: **QA PASS** and **BUILD PASS**, run `36492426186` on
+  `2b14dd8cc5f72a19681b11822a24fd2341d68f1f`, MD artifact `11003014132`, MF
+  artifact `11003138301`. BL33 cost against t75 (`1b30854c`): MD 269256 ->
+  270314 (+1058 B, 56.0 KiB free), MF 270157 -> 270938 (+781 B, 60.4 KiB free).
+- **HW PENDING.** No device has served a byte through this path yet.
 
 ## 0.1.0-alpha5-t75 (branch `test75-tftpput`)
 

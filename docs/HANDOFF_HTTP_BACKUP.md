@@ -2,7 +2,7 @@
 
 **Branch:** `dev/ursusboot-http-backup` (from `test75-tftpput` / `1b30854c`)
 **Version:** `0.1.0-alpha5-t76`
-**Status:** SOURCE + repo QA. No build, no hardware.
+**Status:** SOURCE + repo QA + BUILD PASS (both boards). No hardware.
 
 ## Why this line exists
 
@@ -95,13 +95,22 @@ guard tripped on a comment that quoted the old expression.
 
 ## Next steps, in order
 
-1. **Measure.** `build.yml` now also triggers on this branch (temporary — the
-   filter carries a comment saying to restore `[main, 'test*']` before merge).
-   `scripts/ci/build-release.sh` ends in `scripts/ci/check_bl33_budget.py`,
-   which prints the BL33 headroom for MD and MF. Those two numbers decide
-   whether this line continues. At t73 the diet left roughly 60 KiB on MD and
-   68 KiB on MF; the estimate for this change was ~60 lines of code, and the
-   estimate has not been checked against a compiler yet.
+1. **Measure — done.** Build run `36492426186` on `2b14dd8c` compiled both
+   boards with the pinned OpenWrt gcc 14.4 toolchain and ran
+   `check_bl33_budget.py`. The cost of this endpoint against the t75 baseline
+   (run `36299597450`, `1b30854c`):
+
+   ```text
+   board  BL33 LZMA t75  BL33 LZMA t76   delta    headroom t75 -> t76
+   MD          269256         270314     +1058 B   57.1 KiB -> 56.0 KiB
+   MF          270157         270938      +781 B   61.2 KiB -> 60.4 KiB
+   ```
+
+   About 1 KiB compressed, roughly 1.8% of the remaining headroom on either
+   board, so the line continues. The pre-build guess was "~60 lines"; the code
+   is ~200 lines including guards and comments, and it still costs only about
+   a kilobyte after LZMA. The guess about *size* held; the guess about *lines*
+   did not, and the number above is the one to rely on.
 2. **If it fits:** generic read catalog. UrsusBoot currently offers no
    per-partition dump on an MF stock layout because no proven physical map
    exists for it. For *reading* that caution buys nothing — reading a wrong
@@ -129,8 +138,12 @@ T76 guards         read-only path, wrap-safe range check, MTD released on both
                    teardown paths (normal release and the tcp_err reset path),
                    read error aborts, 0xFF for bad blocks, refused mid-operation;
                    each verified to fail when its fix is reverted
-build              not run in this session — no cross toolchain in the container
+build              BUILD PASS, run 36492426186 on 2b14dd8c, both boards
+                   MD artifact 11003014132, MF artifact 11003138301
+BL33 budget        MD 270314 / 327680 (56.0 KiB free, 82.5% used)
+                   MF 270938 / 332800 (60.4 KiB free, 81.4% used)
 hardware           none
 ```
 
-No BUILD PASS and no HW PASS are claimed. The endpoint has never served a byte.
+BUILD PASS proves it compiles, links and fits; it says nothing about behaviour.
+No HW PASS is claimed and the endpoint has never served a byte.
