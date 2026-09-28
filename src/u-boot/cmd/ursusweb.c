@@ -2756,6 +2756,8 @@ static void ursus_http_err(void *arg, err_t err)
     if (c && c->websocket)
         ursus_ws_detach(c);
     ursus_console_pending_clear(c);
+    /* A client that resets mid-backup must not leave the MTD device pinned. */
+    ursus_dl_release(c);
     free(c);
 }
 

@@ -75,6 +75,24 @@ Behaviour worth knowing:
   purpose: MTD streaming already covers whole-chip and per-partition dumps, and
   the first thing this branch owes is a size measurement, not a second feature.
 
+## Found in review of the first commit
+
+Two defects in the first push (`2c1689b6`), both caught by reading rather than by
+a build, and both fixed before any device ran this code:
+
+- **Client reset leaked the MTD device.** `ursus_http_err` (the lwIP `tcp_err`
+  path) freed the connection without calling `ursus_dl_release`, so closing the
+  browser tab or hitting Ctrl-C on `curl` mid-dump left `get_mtd_device_nm()`'s
+  reference held and the 16 KiB buffer lost. That is the *ordinary* way a
+  256 MiB download ends early, so it would have happened on the first real use.
+- **The range check could wrap.** `offset + size > mtd->size` adds two u64 values
+  taken from the query string; an aligned `size` near 2^64 wraps the sum to a
+  small number and passes. Now `size > mtd->size - offset`, safe because
+  `offset < mtd->size` is already established.
+
+The QA guards match code with comments stripped: the first version of the range
+guard tripped on a comment that quoted the old expression.
+
 ## Next steps, in order
 
 1. **Measure.** `build.yml` now also triggers on this branch (temporary — the
@@ -107,6 +125,10 @@ next to backup.
 
 ```text
 scripts/qa.sh      PASS (URSUSBOOT_STANDALONE_QA=PASS, URSUSBOOT_PIPELINE_QA=PASS)
+T76 guards         read-only path, wrap-safe range check, MTD released on both
+                   teardown paths (normal release and the tcp_err reset path),
+                   read error aborts, 0xFF for bad blocks, refused mid-operation;
+                   each verified to fail when its fix is reverted
 build              not run in this session — no cross toolchain in the container
 hardware           none
 ```

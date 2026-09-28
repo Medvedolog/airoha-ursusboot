@@ -192,6 +192,40 @@ for sym in ("CONFIG_CMD_UBIFS","CONFIG_CMD_GPT","CONFIG_CMD_PART","CONFIG_SYS_LO
     assert f"# {sym} is not set" in size, sym
 print("T73 WS yield + stock-map + size-diet regression guards: PASS")
 PY
+# t76: streaming NAND backup. Read-only by construction, and it must give the
+# MTD device back on every way a connection can end.
+grep -q 'GET /api/backup/mtd/' "$ROOT/src/u-boot/cmd/ursusweb.c"
+grep -q '#include "ursusdl.inc"' "$ROOT/src/u-boot/cmd/ursusweb.c"
+ROOT="$ROOT" python3 - <<'PY'
+import os, re
+from pathlib import Path
+r = Path(os.environ["ROOT"])
+dl = (r/"src/u-boot/cmd/ursusdl.inc").read_text()
+web = (r/"src/u-boot/cmd/ursusweb.c").read_text()
+# Match code, not prose: a comment may quote the very thing it warns against.
+code = re.sub(r"/\*.*?\*/", "", dl, flags=re.S)
+# Nothing on this path may erase or write flash.
+for forbidden in ("mtd_write", "mtd_erase", "mtd_panic_write", "run_command", "ubi_volume_write"):
+    assert forbidden not in code, f"backup path must be read-only: {forbidden}"
+# A wrapped u64 sum must not pass the range check.
+assert "size > mtd->size - offset" in code
+assert "offset + size > mtd->size" not in code
+# Every teardown path releases the MTD reference and the buffer: the normal
+# release, and the tcp_err handler a client reset (closed tab, Ctrl-C) takes.
+rel = re.search(r"static void ursus_conn_release\(.*?\n\}\n", web, re.S).group(0)
+err = re.search(r"static void ursus_http_err\(.*?\n\}\n", web, re.S).group(0)
+assert "ursus_dl_release(c);" in rel, "ursus_conn_release leaks the backup MTD"
+assert "ursus_dl_release(c);" in err, "ursus_http_err leaks the backup MTD on client reset"
+assert "put_mtd_device(c->dl_mtd)" in dl and "free(c->dl_buf)" in dl
+# A read error aborts; a truncated body must never look complete.
+assert re.search(r"if \(!ursus_dl_refill\(c\)\)\s*return ERR_VAL;", web)
+# Bad eraseblocks keep their physical span as 0xFF.
+assert "memset(c->dl_buf, 0xff, take)" in dl
+# Refused while a transaction owns the flash.
+for guard in ("ursus_ubi_migration_active()", "ursus_ubi_update_active()", "ursus_fip_update_active()"):
+    assert guard in dl, guard
+print("T76 streaming backup regression guards: PASS")
+PY
 # MAC identity must be refreshed before autoboot on both current Nokia profiles.
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/u-boot.TEST61.full.config"
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/an7583_nokia_xg-040g-mf_MF2_RAM_defconfig"

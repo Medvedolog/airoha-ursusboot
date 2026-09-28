@@ -151,9 +151,11 @@ static err_t ursus_dl_start(struct tcp_pcb *pcb, struct ursus_conn *c,
     size = ursus_dl_query_u64(query, qlen, "size", mtd->size - min_t(u64, offset, mtd->size));
 
     /* Eraseblock alignment keeps the bad-block substitution unambiguous. */
+    /* `size > mtd->size - offset`, not `offset + size > mtd->size`: the sum
+     * of two u64 values from the query string can wrap and pass. */
     if (!size || !mtd->erasesize || offset % mtd->erasesize ||
         size % mtd->erasesize || offset >= mtd->size ||
-        offset + size > mtd->size) {
+        size > mtd->size - offset) {
         put_mtd_device(mtd);
         return ursus_http_start_response(pcb, c, 400, "application/json",
             "{\"result\":\"REJECTED\",\"reason_class\":\"BAD_REQUEST\",\"reason\":\"range must be eraseblock aligned and inside the device\"}\n");
