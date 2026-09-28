@@ -7,7 +7,9 @@ name: Build
 
 on:
   push:
-    branches: [main, 'test*']
+    # dev/ursusboot-http-backup is temporary: restore this to
+    # [main, 'test*'] once the streaming-backup line is merged.
+    branches: [main, 'test*', dev/ursusboot-http-backup]
   pull_request:
   workflow_dispatch:
 

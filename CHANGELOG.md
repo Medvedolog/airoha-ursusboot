@@ -11,6 +11,41 @@ Evidence labels used here:
 
 **QA PASS and BUILD PASS are not HW PASS.**
 
+## 0.1.0-alpha5-t76 (branch `dev/ursusboot-http-backup`)
+
+Streaming NAND backup over the recovery HTTP server, so a dump needs neither a
+RAM staging buffer nor a second transport.
+
+- `GET /api/backup/mtd/<name>[?offset=&size=]` sends the ECC-corrected main
+  area of any live MTD device or partition straight into the HTTP response.
+  The body is produced from flash as TCP drains it (16 KiB per refill, never
+  spanning an eraseblock), so the whole 256 MiB chip streams in one request
+  with no RAM staging and no DRAM-size precondition. `Content-Length` is the
+  requested span, so a browser or `curl` gets a plain file with a progress bar.
+- A bad eraseblock is emitted as `0xFF` and keeps its physical span, which is
+  the format UrsusFlasher's F5 archives already use. OOB, OTP and the real
+  content of bad blocks are not part of this format; it restores main-area
+  data on compatible geometry and is not a forensic copy of the chip.
+- The range must be eraseblock-aligned and inside the device, the name must be
+  a live MTD device, and the request is refused while a UBI migration, a UBI
+  update or a FIP update is active. Nothing on this path erases or writes.
+- A read error aborts the TCP connection instead of truncating the body, so a
+  short backup cannot be mistaken for a complete one.
+- Why it replaces the previous shape: the T75 `tftpput` route staged 8 MiB at a
+  time through RAM and needed a TFTP receiver on the PC, which is 32 round
+  trips for a whole chip, a UDP port through the operator's firewall and a
+  verified 128 MiB of DRAM. `tftpput` stays for explicit expert RAM exports;
+  backups no longer depend on it.
+- Credit where it is due: streaming the backup out of the HTTP server, and
+  `0xFF` for bad eraseblocks, follow **pbs05** [`uboot-an758x`](https://github.com/pbs05/uboot-an758x)
+  (`net/lwip/httpd.c`, `fs_read_custom`). UrsusBoot's own code is separate — see
+  `docs/CREDITS.md` — but the idea is theirs and it is the better one.
+- UBI volume streaming is deliberately not in this step: `ubi_volume_read()`
+  prints a line per call, so it needs a quiet variant first. MTD streaming
+  already covers whole-chip and per-partition dumps.
+- **SOURCE. Exact QA/BUILD pending; HW PENDING.** No device has served a byte
+  through this path yet.
+
 ## 0.1.0-alpha5-t75 (branch `test75-tftpput`)
 
 - `tftpput <RAM-address> <size-hex> <PC-IP>:[port:]<filename>` sends a specified RAM
