@@ -1549,4 +1549,4 @@ static int do_ursusubiboot(struct cmd_tbl *cmdtp, int flag, int argc,
 }
 
 U_BOOT_CMD(ursusubiboot, 1, 0, do_ursusubiboot,
-           URSUS_PRODUCT_VERSION " boot OpenWrt from UBI fit volume", "");
+           "boot OpenWrt from UBI fit volume", "");

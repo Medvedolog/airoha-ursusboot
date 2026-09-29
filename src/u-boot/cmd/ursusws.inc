@@ -15,6 +15,15 @@
 #define URSUS_WS_GUID          "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 #define URSUS_WS_PROTOCOL      "ursusboot-console-v1"
 #define URSUS_WS_POLL_MS       5UL
+/* A peer that vanished (closed window, dead cable, sleeping PC) sends no FIN
+ * and no RST, and an idle console sends nothing that would make TCP notice.
+ * Without these limits it keeps the one WebSocket slot forever and every later
+ * connect is refused with 409. */
+#define URSUS_WS_PING_MS       10000UL
+#define URSUS_WS_DEAD_MS       60000UL
+/* A blocking command (mtd read, loadx) stops the main loop and with it the
+ * pings; time spent there is not the peer's silence. */
+#define URSUS_WS_STALL_MS      5000UL
 
 
 static const char ursus_ws_page[] =
@@ -52,6 +61,9 @@ struct ursus_ws_state {
     bool close_requested;
     struct tcp_pcb *pcb;
     struct ursus_conn *conn;
+    ulong last_rx;
+    ulong last_ping;
+    ulong last_service;
 
     struct stdio_dev *orig_in;
     struct stdio_dev *orig_out;
@@ -490,6 +502,8 @@ static err_t ursus_ws_feed(const u8 *data, size_t len)
 {
     size_t pos = 0;
 
+    ursus_ws.last_rx = get_timer(0);
+
     while (pos < len) {
         if (ursus_ws.hdr_len < ursus_ws.hdr_need) {
             ursus_ws.hdr[ursus_ws.hdr_len++] = data[pos++];
@@ -680,6 +694,7 @@ static err_t ursus_ws_upgrade(struct tcp_pcb *pcb, struct ursus_conn *c)
 
     c->websocket = true;
     ursus_ws.active = true;
+    ursus_ws.last_rx = ursus_ws.last_ping = ursus_ws.last_service = get_timer(0);
     tcp_sent(pcb, ursus_ws_sent);
     tcp_poll(pcb, ursus_ws_poll, 1);
 
@@ -703,6 +718,20 @@ static void ursus_ws_service(void)
     if (!ursus_ws.active)
         return;
     ursus_ws_flush_tx();
+    if (!ursus_ws.close_requested) {
+        ulong now = get_timer(0);
+
+        if (now - ursus_ws.last_service > URSUS_WS_STALL_MS)
+            ursus_ws.last_rx = ursus_ws.last_ping = now;
+        ursus_ws.last_service = now;
+        if (now - ursus_ws.last_rx > URSUS_WS_DEAD_MS) {
+            printf("URSUS_WS_PEER_DEAD silent_ms=%lu\n", now - ursus_ws.last_rx);
+            ursus_ws_protocol_close(1001);
+        } else if (now - ursus_ws.last_ping > URSUS_WS_PING_MS) {
+            ursus_ws.last_ping = now;
+            ursus_ws_send_frame(0x9, NULL, 0);
+        }
+    }
     if (!ursus_ws.close_requested)
         return;
 

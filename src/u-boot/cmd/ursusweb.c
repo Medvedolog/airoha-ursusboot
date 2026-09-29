@@ -3130,5 +3130,5 @@ U_BOOT_CMD(ursussettings, 2, 0, do_ursussettings,
     "reset  - erase and recreate only rootfs_data on OpenWrt UBI/factory layout");
 
 U_BOOT_CMD(ursusweb, 1, 0, do_ursusweb,
-    URSUS_PRODUCT_VERSION " WebFailsafe / OpenWrt stock-layout + UBI preflight",
+    "WebFailsafe / OpenWrt stock-layout + UBI preflight",
     "");

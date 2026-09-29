@@ -82,8 +82,8 @@ def patch_dispatch(path: Path) -> None:
     text = replace_once(text, "if (ursus_factory_kernel_present(nand)) {", "if (URSUS_BOARD_ALLOW_FACTORY_FIT && ursus_factory_kernel_present(nand)) {", "factory policy")
     text = replace_once(text, "printf(\"URSUS_DISPATCH_BEGIN\\n\");", "printf(\"URSUS_DISPATCH_BEGIN\\n\");\n    printf(\"%s\\n\", URSUS_BOARD_PROFILE_MARKER);", "profile marker")
     text = text.replace(
-        'URSUS_PRODUCT_VERSION " boot-held Reset / stock-layout + UBI dispatcher"',
-        'URSUS_PRODUCT_VERSION " modular Airoha boot/recovery dispatcher"',
+        '"boot-held Reset / stock-layout + UBI dispatcher"',
+        '"modular Airoha boot/recovery dispatcher"',
     )
     path.write_text(text, encoding="utf-8")
 
@@ -151,8 +151,8 @@ def patch_stock(path: Path) -> None:
     )
     text = replace_once(text, 'printf("URSUS_STOCKBOOT_BEGIN\\n");', 'printf("URSUS_STOCKBOOT_BEGIN\\n");\n    printf("%s\\n", URSUS_BOARD_PROFILE_MARKER);', "stock profile marker")
     text = text.replace(
-        'URSUS_PRODUCT_VERSION " StockBridge boot with Nokia tcboot board-argument parity"',
-        'URSUS_PRODUCT_VERSION " modular stock-slot StockBridge"',
+        '"StockBridge boot with Nokia tcboot board-argument parity"',
+        '"modular stock-slot StockBridge"',
     )
     path.write_text(text, encoding="utf-8")
 

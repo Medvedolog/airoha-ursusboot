@@ -1,7 +1,7 @@
 # Handoff — streaming HTTP backup and read catalog
 
 **Branch:** `dev/ursusboot-http-backup` (from `test75-tftpput` / `1b30854c`)
-**Version:** `0.1.0-alpha5-t78` (t77 plus one shell-echo fix, see CHANGELOG;
+**Version:** `0.1.0-alpha5-t79` (t77 plus small console fixes, see CHANGELOG;
 the streaming backup below is unchanged from t77)
 **Status:** t77: SOURCE + repo QA + BUILD PASS (both boards). t78: SOURCE only
 until built. No hardware for either.

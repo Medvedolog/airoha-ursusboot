@@ -183,7 +183,7 @@ static int do_ursusdispatch(struct cmd_tbl *cmdtp, int flag, int argc, char *con
 }
 
 U_BOOT_CMD(ursusdispatch, 1, 0, do_ursusdispatch,
-           URSUS_PRODUCT_VERSION " boot-held Reset / stock-layout + UBI dispatcher", "");
+           "boot-held Reset / stock-layout + UBI dispatcher", "");
 
 /*
  * t72: environment ownership.  The UBI env can be written by another boot

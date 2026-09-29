@@ -283,12 +283,6 @@ cat = body(code, "static err_t ursus_dl_catalog_send(")
 assert "while (root->parent)" in cat and "abs += root->offset;" in cat
 assert '\\"root\\":\\"%s\\",\\"offset\\":%llu' in cat
 
-# 8. The UART/WebSocket shell erases a typed character with a real BS, not the
-#    text "\b \b" (an escaped backslash in the C string shows up literally on
-#    the live console).  t77 shipped that mistake.
-uart_shell = body(web, "static void ursus_uart_shell_poll(void)")
-assert 'printf("\\b \\b")' in uart_shell or "printf(\"\\b \\b\")" in uart_shell
-assert '\\\\b' not in uart_shell.replace('\\b \\b', ''), "the erase echo must not be an escaped backslash"
 for io in ("mtd_read", "mtd_block_isbad", "ubi_read", "ubi_open_volume_nm", "get_mtd_device_nm"):
     assert io not in cat, f"the catalog runs in a callback and must not touch flash: {io}"
 
@@ -298,6 +292,39 @@ for guard in ("ursus_ubi_migration_active()", "ursus_ubi_update_active()", "ursu
     assert guard in code, guard
 assert re.search(r"ursus_dl_active\(\) && URSUS_REQ_MATCH\(c->reqhdr, \"POST /api/\"\)", web)
 print("T76 streaming backup + catalog regression guards: PASS")
+
+# 9. The UART/WebSocket shell erases a typed character with a real BS, not the
+#    text "\b \b" (an escaped backslash in the C string shows up literally on
+#    the live console).  t77 shipped that mistake.
+uart_shell = body(web, "static void ursus_uart_shell_poll(void)")
+assert 'printf("\\b \\b")' in uart_shell, "the erase echo must be BS-space-BS"
+assert '\\\\b' not in uart_shell.replace('\\b \\b', ''), "the erase echo must not be an escaped backslash"
+
+# 10. `help` lists every command, so a command's one-line usage must not repeat the
+#     product version on every row; `version` and the banner already print it.
+for cmd_file in sorted((r / "src/u-boot/cmd").glob("ursus*.c")):
+    for block in re.finditer(r"U_BOOT_CMD\(.*?\n?\s*\);", cmd_file.read_text(encoding="utf-8"), re.S):
+        assert "URSUS_PRODUCT_VERSION" not in block.group(0), \
+            f"{cmd_file.name}: the version does not belong in a command's help line"
+print("UART shell echo + help-line guards: PASS")
+
+# 11. A WebSocket peer that vanished must not hold the single console slot forever
+#     (every later connect would be refused with 409): the service pings, and drops a
+#     peer that stays silent, but never counts time the main loop spent blocked in a
+#     command as the peer's silence.
+wsinc = (r / "src/u-boot/cmd/ursusws.inc").read_text(encoding="utf-8")
+wsinc_code = re.sub(r"/\*.*?\*/", "", wsinc, flags=re.S)
+svc_ws = body(wsinc_code, "static void ursus_ws_service(void)")
+feed_ws = body(wsinc_code, "static err_t ursus_ws_feed(")
+assert re.search(r"#define URSUS_WS_PING_MS\s+\d+UL", wsinc) and re.search(r"#define URSUS_WS_DEAD_MS\s+\d+UL", wsinc)
+assert "ursus_ws.last_rx = get_timer(0);" in feed_ws, "any received byte proves the peer is alive"
+assert "ursus_ws_send_frame(0x9," in svc_ws and "URSUS_WS_PING_MS" in svc_ws, "the service must ping"
+assert re.search(r"URSUS_WS_DEAD_MS\)\s*\{[^}]*ursus_ws_protocol_close\(", svc_ws), "a silent peer must be dropped"
+assert re.search(r"URSUS_WS_STALL_MS\)\s*\n?\s*ursus_ws\.last_rx = ursus_ws\.last_ping = now;", svc_ws), \
+    "time spent blocked in a command must not count as the peer's silence"
+assert "ursus_ws.last_rx = ursus_ws.last_ping = ursus_ws.last_service = get_timer(0);" in wsinc_code, \
+    "a new connection starts its clocks at the upgrade"
+print("WebSocket liveness guards: PASS")
 PY
 # MAC identity must be refreshed before autoboot on both current Nokia profiles.
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/u-boot.TEST61.full.config"

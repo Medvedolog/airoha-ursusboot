@@ -1274,7 +1274,7 @@ static int do_ursusupdate(struct cmd_tbl *cmdtp, int flag, int argc,
 }
 
 U_BOOT_CMD(ursusupdate, 5, 0, do_ursusupdate,
-           URSUS_PRODUCT_VERSION " validate/update UrsusBoot FIP from RAM",
+           "validate/update UrsusBoot FIP from RAM",
            "check <addr> <len>\n"
            "ursusupdate write <addr> <len>\n"
            "  transport examples:\n"

@@ -568,6 +568,6 @@ static int do_ursusstockboot(struct cmd_tbl *cmdtp, int flag, int argc,
 
 U_BOOT_CMD(
     ursusstockboot, 2, 0, do_ursusstockboot,
-    URSUS_PRODUCT_VERSION " StockBridge boot with Nokia tcboot board-argument parity",
+    "StockBridge boot with Nokia tcboot board-argument parity",
     "[master|slave]"
 );

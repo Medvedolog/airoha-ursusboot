@@ -11,6 +11,31 @@ Evidence labels used here:
 
 **QA PASS and BUILD PASS are not HW PASS.**
 
+## 0.1.0-alpha5-t79 (branch `dev/ursusboot-http-backup`)
+
+Two more console findings from the hardware run. The streaming backup is still
+exactly t77.
+
+- **A vanished WebSocket peer held the console slot forever (409).** A peer that
+  disappears without FIN or RST (closed window, dead cable, sleeping PC) leaves
+  the single `ursus_ws` slot occupied, and an idle console sends nothing that
+  would make TCP notice, so every later connect got
+  `409 another live WebSocket console is already attached` until `ursusweb`
+  was restarted on the UART. `ursus_ws_service()` now pings every 10 s and drops
+  a peer that has sent nothing for 60 s (`URSUS_WS_PEER_DEAD`). Time the main
+  loop spent blocked in a command (`mtd read`, `loadx`) does not count as the
+  peer's silence, so a healthy client is not dropped after a long command.
+  UrsusFlasher answers pings (it always did).
+- **`help` repeated the product version on every row.** Five command usage lines
+  (`ursusupdate`, `ursusweb`, `ursusubiboot`, `ursusstockboot`, `ursusdispatch`)
+  began with `UrsusBoot <version>`, which made the whole list noisy. The version
+  stays in `version` and in the banner. The MD/MF board-policy transform that
+  rewrites two of those lines was updated to match, and `qa.sh` now rejects a
+  version in any `U_BOOT_CMD` usage text.
+- Includes the t78 fix below.
+- Evidence: SOURCE + repo QA (every new guard fails when its property is broken).
+  No build, no hardware.
+
 ## 0.1.0-alpha5-t78 (branch `dev/ursusboot-http-backup`)
 
 A one-line firmware fix found on the first hardware run of t77. Nothing else
