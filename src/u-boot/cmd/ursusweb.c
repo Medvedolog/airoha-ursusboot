@@ -2807,7 +2807,7 @@ static void ursus_uart_shell_poll(void)
     }
 }
 
-static int do_ursusweb(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
+static int __maybe_unused do_ursusweb_raw(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 {
     struct netif *netif = NULL;
     err_t err;
@@ -3041,6 +3041,13 @@ fail_owned:
 fail_plain:
     ursus_web_running = false;
     return CMD_RET_FAILURE;
+}
+
+#include "ursushttpd_experiment.inc"
+
+static int do_ursusweb(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
+{
+    return ursus_httpd_experiment_run();
 }
 
 static int do_ursussettings(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
