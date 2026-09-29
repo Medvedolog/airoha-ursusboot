@@ -276,6 +276,15 @@ assert "dl_desc" not in code and "struct ubi_volume_desc *dl_" not in web
 # 7. Bad eraseblocks keep their physical span as 0xFF.
 assert "memset(c->dl_buf, 0xff, take)" in code
 
+# 7b. The catalog reports partitions at their absolute offset in the root
+#     device (walking the parent chain), because archives record physical
+#     offsets; and it does no flash I/O, since it runs inside a callback.
+cat = body(code, "static err_t ursus_dl_catalog_send(")
+assert "while (root->parent)" in cat and "abs += root->offset;" in cat
+assert '\\"root\\":\\"%s\\",\\"offset\\":%llu' in cat
+for io in ("mtd_read", "mtd_block_isbad", "ubi_read", "ubi_open_volume_nm", "get_mtd_device_nm"):
+    assert io not in cat, f"the catalog runs in a callback and must not touch flash: {io}"
+
 # 8. Refused while a transaction owns the flash, and state-changing requests are
 #    refused while a stream runs.
 for guard in ("ursus_ubi_migration_active()", "ursus_ubi_update_active()", "ursus_fip_update_active()"):

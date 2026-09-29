@@ -441,15 +441,27 @@ static err_t ursus_dl_catalog_send(struct tcp_pcb *pcb, struct ursus_conn *c)
 
     ursus_dl_cat_add(&len, &overflow, "{\"schema\":1,\"mtd\":[");
     mtd_for_each_device(mtd) {
+        struct mtd_info *root = mtd;
+        u64 abs = 0;
+
         if (!mtd->name || !ursus_dl_name_ok(mtd->name, strlen(mtd->name)))
             continue;
         if (mtd->type != MTD_NANDFLASH && mtd->type != MTD_MLCNANDFLASH)
             continue;
+        /* `offset` is relative to the parent; the client needs it absolute in
+         * the root device, because an archive records physical offsets. */
+        while (root->parent) {
+            abs += root->offset;
+            root = root->parent;
+        }
+        if (!root->name || !ursus_dl_name_ok(root->name, strlen(root->name)))
+            continue;
         ursus_dl_cat_add(&len, &overflow,
-            "%s{\"name\":\"%s\",\"size\":%llu,\"erase\":%u,\"page\":%u,\"whole\":%s}",
-            first ? "" : ",", mtd->name, (unsigned long long)mtd->size,
-            (unsigned int)mtd->erasesize, (unsigned int)mtd->writesize,
-            mtd_is_partition(mtd) ? "false" : "true");
+            "%s{\"name\":\"%s\",\"root\":\"%s\",\"offset\":%llu,\"size\":%llu,"
+            "\"erase\":%u,\"page\":%u,\"whole\":%s}",
+            first ? "" : ",", mtd->name, root->name, (unsigned long long)abs,
+            (unsigned long long)mtd->size, (unsigned int)mtd->erasesize,
+            (unsigned int)mtd->writesize, mtd_is_partition(mtd) ? "false" : "true");
         first = false;
     }
     ursus_dl_cat_add(&len, &overflow, "],\"ubi\":{\"attached\":%s",

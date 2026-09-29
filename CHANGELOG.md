@@ -33,9 +33,12 @@ streaming backup itself.
   a flash read owns the connection (`dl_busy`) only marks it dead; the read
   finishes the teardown when it returns. `scripts/qa.sh` asserts that no
   callback reads flash and that both teardown paths defer.
-- `GET /api/backup/catalog` lists the live NAND MTD devices (name, size, erase
-  and page size, whole device or partition) and, when UBI is attached, its
-  volumes (name, id, static or dynamic, size). It comes from the live lists, not
+- `GET /api/backup/catalog` lists the live NAND MTD devices (name, root device,
+  absolute offset in the root, size, erase and page size, whole device or
+  partition) and, when UBI is attached, its volumes (name, id, static or
+  dynamic, size). The offset is found by walking the parent chain, so a client
+  can turn a partition into an `offset`/`size` range on the whole device
+  without a console. The catalog does no flash I/O. It comes from the live lists, not
   a hard-coded map: reading a wrong range is harmless, so a read path needs no
   proven per-model partition table. On a Nokia stock layout it shows the DTS
   partitions (`bl2`/`ubi`), not the named stock partitions, which do not exist

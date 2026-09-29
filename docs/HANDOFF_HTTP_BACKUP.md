@@ -47,11 +47,21 @@ ubi/<volume>                 one UBI volume, whole
 
 ```json
 {"schema":1,
- "mtd":[{"name":"spi-nand0","size":268435456,"erase":131072,"page":2048,"whole":true},
-        {"name":"ursus-ubi-full","size":...,"erase":131072,"page":2048,"whole":false}],
+ "mtd":[{"name":"spi-nand0","root":"spi-nand0","offset":0,"size":268435456,
+         "erase":131072,"page":2048,"whole":true},
+        {"name":"ursus-ubi-full","root":"spi-nand0","offset":524288,"size":...,
+         "erase":131072,"page":2048,"whole":false}],
  "ubi":{"attached":true,"leb":126976,
         "volumes":[{"name":"fip","id":2,"type":"static","size":...}]}}
 ```
+
+`offset` is absolute in the `root` device, found by walking the parent chain
+(the kernel's own `mtd->offset` is relative to the parent). An archive records
+physical offsets, so a client can turn "partition X" into
+`GET /api/backup/mtd/<root>?offset=&size=` without a console and without parsing
+`mtd list`. The catalog does no flash I/O: it runs inside a callback, and the
+QA guard checks that. Resume works the same way, at eraseblock granularity: ask
+for the remaining `offset`/`size`. There is no HTTP `Range` support.
 
 Guards, all before a single byte is sent:
 
@@ -166,8 +176,12 @@ next `check_bl33_budget.py` line, not this estimate.
    (temporary; the filter carries a comment to restore `[main, 'test*']` before
    merge). A full run takes ~45 min because the toolchain is built from source.
 2. **Host side** (UrsusFlasher, `dev/ursusboot-http-backup-client`): one HTTP
-   request per dump with `Range` resume, discovery from the catalog, no
-   WebSocket and no UDP/1069 on the read direction. Restore keeps using TFTP.
+   request per dump, resume by `offset`/`size`, discovery from the catalog, no
+   UDP/1069 on the read direction. Two things still need the WebSocket console
+   and therefore cannot overlap the download: the bad-block list (`mtd bad`;
+   computing it in the catalog would mean flash I/O inside a callback) and an
+   independent spot-check of the downloaded file against U-Boot's own
+   `mtd read` + `hash sha256`. Restore keeps using TFTP.
 3. **Hardware acceptance**, in this order because each step is cheaper than the
    next: catalog on a UBI layout and on a stock layout; a small MTD range;
    a UBI volume; a whole-chip dump with a `sha256sum` cross-check against
@@ -188,10 +202,15 @@ next to backup.
 ## Evidence
 
 ```text
-scripts/qa.sh   t77 guards written; not yet run (the shell was unavailable when
-                this was written; see the commit that follows for the result)
+scripts/qa.sh   PASS (URSUSBOOT_STANDALONE_QA=PASS, URSUSBOOT_PIPELINE_QA=PASS)
+T76/T77 guards  ten mutations, every one caught: a callback reading flash,
+                either teardown path losing the busy deferral, a UBI descriptor
+                held between passes, the wrapping range check, a write call in
+                the backup path, the refill outside dl_busy, the stall abort
+                removed, the catalog losing the parent walk, flash I/O in the
+                catalog
 build           t76 BUILD PASS, run 36492426186 on 2b14dd8c (superseded)
-                t77 not built
+                t77 not built yet
 hardware        none
 ```
 
