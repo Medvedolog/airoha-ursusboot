@@ -66,6 +66,25 @@
 
 #define MEMP_NUM_TCP_SEG                16
 
+/* UrsusBoot t74 HTTPD transport A/B experiment.
+ * Keep the upstream server intentionally minimal: POST + custom memory files,
+ * no CGI/SSI/keepalive/HTTPS. The Ursus transaction/session layer stays above it. */
+#define LWIP_HTTPD_SUPPORT_POST          1
+#define LWIP_HTTPD_CUSTOM_FILES          1
+#define LWIP_HTTPD_DYNAMIC_HEADERS       0
+#define LWIP_HTTPD_DYNAMIC_FILE_READ     0
+#define LWIP_HTTPD_POST_MANUAL_WND       1
+#define LWIP_HTTPD_SUPPORT_REQUESTLIST   1
+#define LWIP_HTTPD_SUPPORT_V09           0
+#define LWIP_HTTPD_SUPPORT_11_KEEPALIVE  0
+#define LWIP_HTTPD_SUPPORT_EXTSTATUS     0
+#define LWIP_HTTPD_FILE_EXTENSION        1
+#define LWIP_HTTPD_MAX_REQ_LENGTH        2048
+#define LWIP_HTTPD_REQ_BUFSIZE           2048
+#define LWIP_HTTPD_MAX_REQUEST_URI_LEN   96
+#define LWIP_HTTPD_POST_MAX_RESPONSE_URI_LEN 64
+#define HTTPD_FSDATA_FILE                "fsdata_ursus_empty.c"
+
 /* IP fragmentation parameters for TFTP reassembly */
 #define IP_FRAG_MTU_USABLE              1480
 #define PBUF_POOL_HEADROOM              6
