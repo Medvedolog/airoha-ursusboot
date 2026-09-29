@@ -2,7 +2,7 @@
 
 **Branch:** `dev/ursusboot-http-backup` (from `test75-tftpput` / `1b30854c`)
 **Version:** `0.1.0-alpha5-t77`
-**Status:** SOURCE + repo QA. BUILD and hardware pending for t77.
+**Status:** SOURCE + repo QA + BUILD PASS for t77 (both boards). No hardware.
 t76 (`2b14dd8c`) compiled and fit on both boards but has a re-entrancy defect;
 see below. **Do not use t76 for backups.**
 
@@ -157,24 +157,27 @@ a comment that quoted the old expression.
 
 ## Measured cost
 
-Build run `36492426186` on t76 (`2b14dd8c`) against the t75 baseline (run
-`36299597450`, `1b30854c`):
+Build run `36539542258` on t77 (`92857c50`), against t76 (run `36492426186`) and
+the t75 baseline (run `36299597450`), BL33 compressed size in bytes:
 
 ```text
-board  BL33 LZMA t75  BL33 LZMA t76   delta    headroom t75 -> t76
-MD          269256         270314     +1058 B   57.1 KiB -> 56.0 KiB
-MF          270157         270938      +781 B   61.2 KiB -> 60.4 KiB
+board       t75      t76      t77     t77-t76   t77-t75   headroom t77
+MD       269256   270314   272184     +1870     +2928     54.2 KiB (83.1% used)
+MF       270157   270938   272649     +1711     +2492     58.7 KiB (81.9% used)
 ```
 
-That is the t76 MTD stream alone. t77 adds the catalog and UBI streaming and has
-not been built yet; expect a few hundred bytes more. The number to trust is the
-next `check_bl33_budget.py` line, not this estimate.
+The whole line -- catalog, MTD and UBI streaming, the main-loop service and the
+deferred teardown -- costs about 2.9 KiB on MD and 2.5 KiB on MF compressed, about
+5% of the headroom t75 had. Moving the read out of the callbacks and adding the
+catalog and UBI path cost roughly 1.7-1.9 KiB more than the t76 endpoint alone.
+Every number is from `check_bl33_budget.py` on the exact run, not an estimate.
 
 ## Next steps, in order
 
-1. **Build t77 and read the budget.** `build.yml` also triggers on this branch
-   (temporary; the filter carries a comment to restore `[main, 'test*']` before
-   merge). A full run takes ~45 min because the toolchain is built from source.
+1. **Build t77 and read the budget** -- done, see above. `build.yml` also
+   triggers on this branch (temporary; the filter carries a comment to restore
+   `[main, 'test*']` before merge). A full run takes 30-45 min because the
+   toolchain is built from source.
 2. **Host side** (UrsusFlasher, `dev/ursusboot-http-backup-client`): one HTTP
    request per dump, resume by `offset`/`size`, discovery from the catalog, no
    UDP/1069 on the read direction. Two things still need the WebSocket console
@@ -210,7 +213,10 @@ T76/T77 guards  ten mutations, every one caught: a callback reading flash,
                 removed, the catalog losing the parent walk, flash I/O in the
                 catalog
 build           t76 BUILD PASS, run 36492426186 on 2b14dd8c (superseded)
-                t77 not built yet
+                t77 BUILD PASS, run 36539542258 on 92857c50, both boards
+                MD artifact 11021240150, MF artifact 11022310688
+BL33 budget     MD 272184 / 327680 (54.2 KiB free, 83.1% used)
+                MF 272649 / 332800 (58.7 KiB free, 81.9% used)
 hardware        none
 ```
 

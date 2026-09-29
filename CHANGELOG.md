@@ -61,7 +61,12 @@ streaming backup itself.
   client must close the console before downloading.
 - HTTP status lines for these paths now carry the right reason phrase (404 and
   500 used to say `Conflict`).
-- **SOURCE + QA only so far; BUILD and HW PENDING.**
+- Evidence: **QA PASS** and **BUILD PASS**, run `36539542258` on
+  `92857c50ace4a69b0978dbce214464e747a66680`, MD artifact `11021240150`, MF
+  artifact `11022310688`. BL33 against t76: MD 270314 -> 272184 (+1870 B, 54.2
+  KiB free), MF 270938 -> 272649 (+1711 B, 58.7 KiB free); against t75: +2928 B
+  and +2492 B.
+- **HW PENDING.** No device has served a byte through this path yet.
 
 ## 0.1.0-alpha5-t76 (branch `dev/ursusboot-http-backup`)
 
