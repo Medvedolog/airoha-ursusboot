@@ -11,7 +11,61 @@ Evidence labels used here:
 
 **QA PASS and BUILD PASS are not HW PASS.**
 
+## 0.1.0-alpha5-t77 (branch `dev/ursusboot-http-backup`)
+
+The read catalog and UBI volume streaming, and a corrected design for the
+streaming backup itself.
+
+- **The t76 design had a re-entrancy defect, fixed here.** t76 produced each
+  span of a backup from inside the lwIP `tcp_sent`/`tcp_poll` callbacks. Since
+  t74 `board_schedule_poll()` pumps lwIP from `schedule()`, which the SPI-NAND
+  driver calls between pages, so the NAND read a callback started could be
+  interrupted by a *nested* `tcp_sent` on the same connection. That nested call
+  started a second refill on the same buffer and offset; the outer read then
+  advanced the offset a second time, skipping a span. A nested `tcp_err` or
+  close (a peer reset arriving mid-read, the ordinary way a long download ends)
+  freed the connection and its buffer under the read that was still filling it.
+  Found by reading the t74 yield path, not by a failing run; **t76 must not be
+  used for backups.**
+- The body is now produced by `ursus_dl_service()`, called from the main loop
+  next to `ursus_console_service_pending()`, and it is the only caller of the
+  refill. The callbacks only queue and acknowledge. A teardown that lands while
+  a flash read owns the connection (`dl_busy`) only marks it dead; the read
+  finishes the teardown when it returns. `scripts/qa.sh` asserts that no
+  callback reads flash and that both teardown paths defer.
+- `GET /api/backup/catalog` lists the live NAND MTD devices (name, size, erase
+  and page size, whole device or partition) and, when UBI is attached, its
+  volumes (name, id, static or dynamic, size). It comes from the live lists, not
+  a hard-coded map: reading a wrong range is harmless, so a read path needs no
+  proven per-model partition table. On a Nokia stock layout it shows the DTS
+  partitions (`bl2`/`ubi`), not the named stock partitions, which do not exist
+  as MTD devices there; any range of the whole device is still readable with
+  `offset`/`size`.
+- `GET /api/backup/ubi/<volume>` streams one UBI volume whole. The volume is
+  opened and closed around each read and never held between passes, because
+  `ubi detach` from the expert console is not refused while a volume is open
+  and a descriptor kept across passes could dangle. The device and the volume's
+  size are re-checked on every pass, so a change under the stream aborts it
+  instead of producing a wrong file. A volume with an interrupted-update marker
+  is refused. No change to `cmd/ubi.c`: the read uses `ubi_read()` directly, so
+  the per-call `Read N bytes from volume` line never appears.
+- A stream that makes no progress for 60 s is aborted, and state-changing
+  requests are refused only while flash is still being read, so a peer that
+  stops reading cannot hold the flash and lock out a reboot for as long as TCP
+  takes to give up.
+- One stream at a time. While the live WebSocket console is connected every
+  other HTTP request, these included, is refused (`ursus_ws_is_active()`), so a
+  client must close the console before downloading.
+- HTTP status lines for these paths now carry the right reason phrase (404 and
+  500 used to say `Conflict`).
+- **SOURCE + QA only so far; BUILD and HW PENDING.**
+
 ## 0.1.0-alpha5-t76 (branch `dev/ursusboot-http-backup`)
+
+> **Superseded by t77. Do not use for backups:** its refill ran inside lwIP
+> callbacks and is not safe against the `board_schedule_poll()` re-entrancy
+> described under t77. The BUILD PASS below proves only that it compiled and
+> fit.
 
 Streaming NAND backup over the recovery HTTP server, so a dump needs neither a
 RAM staging buffer nor a second transport.

@@ -68,6 +68,7 @@ DECLARE_GLOBAL_DATA_PTR;
 #define URSUS_REQ_MATCH(req, lit) (!strncmp((req), (lit), sizeof(lit) - 1))
 
 #define URSUS_DL_NAME_MAX      64
+#define URSUS_DL_MORE(c)       ((c)->dl_kind && (c)->dl_off < (c)->dl_end)
 
 #define URSUS_RC_OK                    "OK"
 #define URSUS_RC_UPLOAD_INCOMPLETE     "UPLOAD_INCOMPLETE"
@@ -247,13 +248,20 @@ struct ursus_conn {
     bool stop_after_response;
     bool reboot_after_response;
 
-    /* Streaming NAND backup: the body is refilled from flash as TCP drains
-     * it, so a whole-chip dump needs no RAM staging.  See ursusdl.inc. */
+    /* Streaming NAND backup: the body is produced from flash by the main loop
+     * (ursus_dl_service) as TCP drains it, so a whole-chip dump needs no RAM
+     * staging.  Never from an lwIP callback: see ursusdl.inc. */
+    unsigned int dl_kind;           /* 0 none, 1 MTD range, 2 UBI volume */
     struct mtd_info *dl_mtd;
+    void *dl_ubi;                   /* ubi_devices[0] at start: identity only */
+    char dl_name[URSUS_DL_NAME_MAX];
     u64 dl_off;
     u64 dl_end;
     char *dl_buf;
     size_t dl_bufsz;
+    ulong dl_progress;              /* get_timer(0) at the last span published */
+    bool dl_busy;                   /* a flash read owns this conn right now */
+    bool dl_dead;                   /* torn down during that read; free after */
 };
 
 /* Web-console commands are deferred out of the TCP receive callback so a
@@ -264,7 +272,6 @@ static char ursus_console_pending_cmd[256];
 
 static void ursus_ws_detach(struct ursus_conn *c);
 static void ursus_dl_release(struct ursus_conn *c);
-static bool ursus_dl_refill(struct ursus_conn *c);
 
 static void ursus_console_pending_clear(struct ursus_conn *c)
 {
@@ -1925,6 +1932,13 @@ static void ursus_conn_release(struct tcp_pcb *pcb, struct ursus_conn *c, bool a
         }
     }
     ursus_console_pending_clear(c);
+    if (c && c->dl_busy) {
+        /* board_schedule_poll() pumps lwIP from inside the NAND read that
+         * ursus_dl_service() is running.  Freeing c or its buffer now would
+         * pull them out from under that read; it finishes the teardown. */
+        c->dl_dead = true;
+        return;
+    }
     ursus_dl_release(c);
     free(c);
     if (stop)
@@ -1935,20 +1949,12 @@ static err_t ursus_http_pump(struct tcp_pcb *pcb, struct ursus_conn *c)
 {
     err_t err = ERR_OK;
     bool wrote = false;
-    while (c->hdr_off < c->hdr_len || c->body_off < c->body_len ||
-           (c->dl_mtd && c->dl_off < c->dl_end)) {
+    while (c->hdr_off < c->hdr_len || c->body_off < c->body_len) {
         const char *src;
         size_t remain, chunk;
         u16_t snd = tcp_sndbuf(pcb);
         u8_t flags = TCP_WRITE_FLAG_COPY;
         if (!snd) break;
-        if (c->hdr_off >= c->hdr_len && c->body_off >= c->body_len) {
-            /* Body drained and more flash remains: read the next span.  A
-             * failure here aborts the connection rather than truncating,
-             * so a short backup can never be mistaken for a complete one. */
-            if (!ursus_dl_refill(c))
-                return ERR_VAL;
-        }
         if (c->hdr_off < c->hdr_len) {
             src = c->hdr + c->hdr_off;
             remain = c->hdr_len - c->hdr_off;
@@ -1970,8 +1976,9 @@ static err_t ursus_http_pump(struct tcp_pcb *pcb, struct ursus_conn *c)
         err = tcp_output(pcb);
         if (err != ERR_OK) return err;
     }
+    /* A streaming backup is not fully queued until the whole range was read. */
     if (!c->all_queued && c->hdr_off == c->hdr_len && c->body_off == c->body_len &&
-        !(c->dl_mtd && c->dl_off < c->dl_end)) {
+        !URSUS_DL_MORE(c)) {
         c->all_queued = true;
         if (c->reboot_after_response && !ursus_reboot_response_queued) {
             ursus_reboot_response_queued = true;
@@ -2022,7 +2029,9 @@ static err_t ursus_http_start_response(struct tcp_pcb *pcb, struct ursus_conn *c
                                        int status, const char *ctype, const char *body)
 {
     const char *reason = status == 200 ? "OK" : status == 400 ? "Bad Request" :
-                         status == 413 ? "Payload Too Large" : "Conflict";
+                         status == 404 ? "Not Found" :
+                         status == 413 ? "Payload Too Large" :
+                         status == 500 ? "Internal Server Error" : "Conflict";
     int n;
     c->body = body;
     c->body_len = strlen(body);
@@ -2274,6 +2283,15 @@ static err_t ursus_route_ready(struct tcp_pcb *pcb, struct ursus_conn *c)
             "{\"result\":\"REJECTED\",\"reason_class\":\"OPERATION_LOCKED\",\"reason\":\"live WebSocket console owns the control plane; disconnect it first\"}\n");
     }
 
+    /* A streaming backup reads flash from the main loop for minutes.  Refuse
+     * new state-changing requests until it ends; reads, status and the expert
+     * console stay available (the console is the real U-Boot command line and
+     * is deliberately not locked). */
+    if (ursus_dl_active() && URSUS_REQ_MATCH(c->reqhdr, "POST /api/") &&
+        !URSUS_REQ_MATCH(c->reqhdr, "POST /api/console "))
+        return ursus_http_start_response(pcb, c, 409, "application/json",
+            "{\"result\":\"REJECTED\",\"reason_class\":\"OPERATION_LOCKED\",\"reason\":\"a backup stream is running; wait for it to finish\"}\n");
+
     ursus_build_status();
 
     if (URSUS_REQ_MATCH(c->reqhdr, "GET /logo.svg "))
@@ -2282,15 +2300,8 @@ static err_t ursus_route_ready(struct tcp_pcb *pcb, struct ursus_conn *c)
         return ursus_http_start_response(pcb, c, 200, "image/svg+xml", ursus_favicon_body);
     if (URSUS_REQ_MATCH(c->reqhdr, "GET /api/status "))
         return ursus_http_start_response(pcb, c, 200, "application/json", ursus_status_body);
-    if (URSUS_REQ_MATCH(c->reqhdr, "GET /api/backup/mtd/")) {
-        const char *path = c->reqhdr + sizeof("GET /api/backup/mtd/") - 1;
-        const char *end = strchr(path, ' ');
-
-        if (!end)
-            return ursus_http_start_response(pcb, c, 400, "application/json",
-                "{\"result\":\"REJECTED\",\"reason_class\":\"BAD_REQUEST\",\"reason\":\"malformed request line\"}\n");
-        return ursus_dl_start(pcb, c, path, end - path);
-    }
+    if (URSUS_REQ_MATCH(c->reqhdr, "GET /api/backup/"))
+        return ursus_dl_route(pcb, c);
     if (URSUS_REQ_MATCH(c->reqhdr, "GET /api/log ") ||
         URSUS_REQ_MATCH(c->reqhdr, "GET /api/operation-log "))
         return ursus_http_start_response(pcb, c, 200, "text/plain; charset=utf-8", ursus_web_log);
@@ -2756,6 +2767,11 @@ static void ursus_http_err(void *arg, err_t err)
     if (c && c->websocket)
         ursus_ws_detach(c);
     ursus_console_pending_clear(c);
+    if (c && c->dl_busy) {
+        /* lwIP already freed the pcb; the read in flight owns c until it ends. */
+        c->dl_dead = true;
+        return;
+    }
     /* A client that resets mid-backup must not leave the MTD device pinned. */
     ursus_dl_release(c);
     free(c);
@@ -2930,6 +2946,7 @@ static int do_ursusweb(struct cmd_tbl *cmdtp, int flag, int argc, char *const ar
         ursus_rx_report(ret);
         ursus_ws_service();
         ursus_console_service_pending();
+        ursus_dl_service();
         sys_check_timeouts();
         ursus_led_poll();
         if (ursus_pending_reboot && ursus_reboot_response_queued &&
@@ -3010,6 +3027,7 @@ static int do_ursusweb(struct cmd_tbl *cmdtp, int flag, int argc, char *const ar
         udelay(500);
     }
 
+    ursus_dl_shutdown();
     ursus_ws_shutdown();
     if (own_listener && ursus_listen_pcb) { tcp_close(ursus_listen_pcb); ursus_listen_pcb = NULL; own_listener = false; }
     ursus_web_netif = NULL;

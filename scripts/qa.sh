@@ -192,9 +192,10 @@ for sym in ("CONFIG_CMD_UBIFS","CONFIG_CMD_GPT","CONFIG_CMD_PART","CONFIG_SYS_LO
     assert f"# {sym} is not set" in size, sym
 print("T73 WS yield + stock-map + size-diet regression guards: PASS")
 PY
-# t76: streaming NAND backup. Read-only by construction, and it must give the
-# MTD device back on every way a connection can end.
-grep -q 'GET /api/backup/mtd/' "$ROOT/src/u-boot/cmd/ursusweb.c"
+# t76: streaming NAND backup and read catalog.  Read-only by construction; it
+# must give the device back on every way a connection can end; and its flash
+# reads must never run inside an lwIP callback (see the ursusdl.inc header).
+grep -q 'GET /api/backup/' "$ROOT/src/u-boot/cmd/ursusweb.c"
 grep -q '#include "ursusdl.inc"' "$ROOT/src/u-boot/cmd/ursusweb.c"
 ROOT="$ROOT" python3 - <<'PY'
 import os, re
@@ -202,29 +203,85 @@ from pathlib import Path
 r = Path(os.environ["ROOT"])
 dl = (r/"src/u-boot/cmd/ursusdl.inc").read_text()
 web = (r/"src/u-boot/cmd/ursusweb.c").read_text()
+
+def body(src, sig):
+    """Text of one C function, from its signature to the closing brace at col 0."""
+    m = re.search(re.escape(sig) + r".*?\n\}\n", src, re.S)
+    assert m, f"function not found: {sig}"
+    return m.group(0)
+
 # Match code, not prose: a comment may quote the very thing it warns against.
 code = re.sub(r"/\*.*?\*/", "", dl, flags=re.S)
-# Nothing on this path may erase or write flash.
-for forbidden in ("mtd_write", "mtd_erase", "mtd_panic_write", "run_command", "ubi_volume_write"):
+
+# 1. Nothing on this path may erase, write, map, unmap or change a volume.
+for forbidden in ("mtd_write", "mtd_erase", "mtd_panic_write", "run_command",
+                  "ubi_volume_write", "ubi_leb_write", "ubi_leb_change",
+                  "ubi_leb_erase", "ubi_leb_unmap", "ubi_leb_map",
+                  "ubi_create_volume", "ubi_remove_volume", "ubi_more_update_data"):
     assert forbidden not in code, f"backup path must be read-only: {forbidden}"
-# A wrapped u64 sum must not pass the range check.
+
+# 2. A wrapped u64 sum must not pass the MTD range check.
 assert "size > mtd->size - offset" in code
 assert "offset + size > mtd->size" not in code
-# Every teardown path releases the MTD reference and the buffer: the normal
-# release, and the tcp_err handler a client reset (closed tab, Ctrl-C) takes.
-rel = re.search(r"static void ursus_conn_release\(.*?\n\}\n", web, re.S).group(0)
-err = re.search(r"static void ursus_http_err\(.*?\n\}\n", web, re.S).group(0)
-assert "ursus_dl_release(c);" in rel, "ursus_conn_release leaks the backup MTD"
-assert "ursus_dl_release(c);" in err, "ursus_http_err leaks the backup MTD on client reset"
-assert "put_mtd_device(c->dl_mtd)" in dl and "free(c->dl_buf)" in dl
-# A read error aborts; a truncated body must never look complete.
-assert re.search(r"if \(!ursus_dl_refill\(c\)\)\s*return ERR_VAL;", web)
-# Bad eraseblocks keep their physical span as 0xFF.
-assert "memset(c->dl_buf, 0xff, take)" in dl
-# Refused while a transaction owns the flash.
+
+# 3. Flash is read from the main loop, never from an lwIP callback.  A nested
+#    callback during a NAND read would start a second refill on the same
+#    buffer and offset, or free the connection under the read.
+assert len(re.findall(r"ursus_dl_refill\(", web + code)) == 2, \
+    "ursus_dl_refill must be defined once and called once (in ursus_dl_service)"
+svc = body(code, "static void ursus_dl_service(void)")
+assert "ursus_dl_refill(" in svc
+for sig in ("static err_t ursus_http_pump(", "static err_t ursus_http_sent(",
+            "static err_t ursus_http_poll(", "static err_t ursus_http_recv("):
+    text = body(web, sig)
+    assert "ursus_dl_refill" not in text and "mtd_read" not in text, f"{sig} must not read flash"
+assert re.search(r"dl_busy = true;\s*ok = ursus_dl_refill\(c\);\s*c->dl_busy = false;", svc), \
+    "the refill must run between dl_busy = true and dl_busy = false"
+assert "c->dl_dead" in svc and "free(c);" in svc, "a deferred teardown must be finished here"
+assert re.search(r"ursus_console_service_pending\(\);\s*ursus_dl_service\(\);", web), \
+    "the main loop must call ursus_dl_service()"
+assert "ursus_dl_shutdown();" in web
+
+# 4. Every teardown path releases the device and the buffer -- the normal
+#    release and the tcp_err handler a client reset (closed tab, Ctrl-C) takes
+#    -- and defers both while a flash read owns the connection.
+rel = body(web, "static void ursus_conn_release(")
+err = body(web, "static void ursus_http_err(")
+for name, text in (("ursus_conn_release", rel), ("ursus_http_err", err)):
+    assert "ursus_dl_release(c);" in text, f"{name} leaks the backup device"
+    assert re.search(r"if \(c && c->dl_busy\) \{.*?c->dl_dead = true;\s*return;", text, re.S), \
+        f"{name} must defer while a flash read owns the connection"
+    assert text.index("c->dl_busy") < text.index("ursus_dl_release(c);"), \
+        f"{name} must check dl_busy before releasing"
+assert "put_mtd_device(c->dl_mtd)" in code and "free(c->dl_buf)" in code
+
+# 5. A read error aborts; a truncated body must never look complete.
+assert re.search(r"if \(!ok\) \{\s*ursus_conn_release\(pcb, c, true\);", svc)
+assert "URSUS_DL_MORE(c)" in body(web, "static err_t ursus_http_pump(")
+# A peer that stops reading must not hold the flash: the stream is abandoned
+# after bounded silence, and the lock on state-changing requests lasts only
+# while flash is still being read, not while the tail waits for an ACK.
+assert "URSUS_DL_STALL_MS" in svc and "get_timer(c->dl_progress)" in svc
+assert re.search(r"static bool ursus_dl_active\(void\)\s*\{\s*return ursus_dl_conn && URSUS_DL_MORE\(ursus_dl_conn\);", code)
+
+# 6. UBI: the volume is opened and closed around each read, never held between
+#    passes (`ubi detach` from the expert console is not refused while open),
+#    and the device and size are re-checked each time.
+ubi = body(code, "static bool ursus_dl_refill_ubi(")
+assert ubi.count("ubi_open_volume_nm(") == 1 and ubi.count("ubi_close_volume(desc);") >= 2
+assert "(void *)ubi_devices[0] != c->dl_ubi" in ubi
+assert "vi.used_bytes != c->dl_end" in ubi and "vi.upd_marker" in ubi
+assert "dl_desc" not in code and "struct ubi_volume_desc *dl_" not in web
+
+# 7. Bad eraseblocks keep their physical span as 0xFF.
+assert "memset(c->dl_buf, 0xff, take)" in code
+
+# 8. Refused while a transaction owns the flash, and state-changing requests are
+#    refused while a stream runs.
 for guard in ("ursus_ubi_migration_active()", "ursus_ubi_update_active()", "ursus_fip_update_active()"):
-    assert guard in dl, guard
-print("T76 streaming backup regression guards: PASS")
+    assert guard in code, guard
+assert re.search(r"ursus_dl_active\(\) && URSUS_REQ_MATCH\(c->reqhdr, \"POST /api/\"\)", web)
+print("T76 streaming backup + catalog regression guards: PASS")
 PY
 # MAC identity must be refreshed before autoboot on both current Nokia profiles.
 grep -q '^CONFIG_USE_PREBOOT=y$' "$ROOT/config/u-boot.TEST61.full.config"
