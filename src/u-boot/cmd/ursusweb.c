@@ -2834,7 +2834,7 @@ static void ursus_uart_shell_poll(void)
         }
         if (ch == 21) {
             while (ursus_uart_line_len) {
-                printf("\\b \\b");
+                printf("\b \b");
                 ursus_uart_line_len--;
             }
             continue;
@@ -2842,7 +2842,7 @@ static void ursus_uart_shell_poll(void)
         if (ch == 8 || ch == 127) {
             if (ursus_uart_line_len) {
                 ursus_uart_line_len--;
-                printf("\\b \\b");
+                printf("\b \b");
             }
             continue;
         }

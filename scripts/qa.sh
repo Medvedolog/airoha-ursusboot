@@ -282,6 +282,13 @@ assert "memset(c->dl_buf, 0xff, take)" in code
 cat = body(code, "static err_t ursus_dl_catalog_send(")
 assert "while (root->parent)" in cat and "abs += root->offset;" in cat
 assert '\\"root\\":\\"%s\\",\\"offset\\":%llu' in cat
+
+# 8. The UART/WebSocket shell erases a typed character with a real BS, not the
+#    text "\b \b" (an escaped backslash in the C string shows up literally on
+#    the live console).  t77 shipped that mistake.
+uart_shell = body(web, "static void ursus_uart_shell_poll(void)")
+assert 'printf("\\b \\b")' in uart_shell or "printf(\"\\b \\b\")" in uart_shell
+assert '\\\\b' not in uart_shell.replace('\\b \\b', ''), "the erase echo must not be an escaped backslash"
 for io in ("mtd_read", "mtd_block_isbad", "ubi_read", "ubi_open_volume_nm", "get_mtd_device_nm"):
     assert io not in cat, f"the catalog runs in a callback and must not touch flash: {io}"
 

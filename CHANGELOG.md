@@ -11,6 +11,24 @@ Evidence labels used here:
 
 **QA PASS and BUILD PASS are not HW PASS.**
 
+## 0.1.0-alpha5-t78 (branch `dev/ursusboot-http-backup`)
+
+A one-line firmware fix found on the first hardware run of t77. Nothing else
+changes; the streaming backup is exactly t77.
+
+- **Erasing a typed character printed the text `\b \b`.** The UART/WebSocket
+  shell (`ursus_uart_shell_poll()`) echoed a deleted character (Backspace or
+  Ctrl-U) with `printf("\\b \\b")`. The doubled backslash is the two-character
+  text backslash-b, not the BS byte, so the live console showed
+  `dfdf\b \b\b \b` instead of erasing. Now `printf("\b \b")`. UrsusFlasher
+  0.2.77 already repairs this text on the host side, so t77 is usable with it;
+  t78 removes the cause. `scripts/qa.sh` asserts the C string.
+- **Known, not changed here:** a Ctrl-C (0x03) received at the idle shell prompt
+  stops WebFailsafe (`ursus_stop`), which drops the WebSocket console and the
+  HTTP server until `ursusweb` is run again on the UART. UrsusFlasher 0.2.77
+  therefore asks for a second Ctrl-C at the idle prompt.
+- Evidence: SOURCE only until a build and a device run.
+
 ## 0.1.0-alpha5-t77 (branch `dev/ursusboot-http-backup`)
 
 The read catalog and UBI volume streaming, and a corrected design for the
