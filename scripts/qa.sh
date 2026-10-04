@@ -362,7 +362,8 @@ for h in ("xg040-md.h", "xg040-mf.h"):
 assert "if (!URSUS_BOARD_ALLOW_STOCK_LAYOUT_INSTALL)" in web
 assert "URSUS_STOCK_LAYOUT_INSTALL_POLICY_REJECT" in web
 assert "stock-layout OpenWrt install is disabled on this board; use OpenWrt UBI migration" in web
-assert "URSUS_STOCK_LAYOUT_INSTALL_ENABLED=%u" in web
+assert 'printf("URSUS_STOCK_LAYOUT_INSTALL_ENABLED=0\\n");' in web
+assert 'printf("URSUS_STOCK_LAYOUT_INSTALL_ENABLED=1\\n");' in web
 assert "URSUS_BOARD_ALLOW_STOCK_LAYOUT_INSTALL &&" in web
 assert "ursus_ubi_migration_start" in web and "ursus_ubi_update_start" in web
 assert "ursus_fip_update_start" in web
