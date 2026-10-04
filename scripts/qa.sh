@@ -349,3 +349,27 @@ if python3 "$ROOT/scripts/resolve_board_profile.py" --registry "$ROOT/config/boa
 grep -q "declares no 'config' yet" /tmp/qa.out
 bash "$ROOT/scripts/qa-pipeline.sh"
 echo URSUSBOOT_STANDALONE_QA=PASS
+
+# t80: Nokia MD/MF persistent UrsusBoot must never create stock-layout OpenWrt.
+python3 - <<'PY'
+import json, pathlib, os
+r = pathlib.Path(os.environ["ROOT"])
+web = (r/"src/u-boot/cmd/ursusweb.c").read_text()
+profiles = json.loads((r/"config/board-profiles.json").read_text())
+for h in ("xg040-md.h", "xg040-mf.h"):
+    text = (r/"boards"/h).read_text()
+    assert "#define URSUS_BOARD_ALLOW_STOCK_LAYOUT_INSTALL 0" in text, h
+assert "if (!URSUS_BOARD_ALLOW_STOCK_LAYOUT_INSTALL)" in web
+assert "URSUS_STOCK_LAYOUT_INSTALL_POLICY_REJECT" in web
+assert "stock-layout OpenWrt install is disabled on this board; use OpenWrt UBI migration" in web
+assert "URSUS_STOCK_LAYOUT_INSTALL_ENABLED=%u" in web
+assert "URSUS_BOARD_ALLOW_STOCK_LAYOUT_INSTALL &&" in web
+assert "ursus_ubi_migration_start" in web and "ursus_ubi_update_start" in web
+assert "ursus_fip_update_start" in web
+assert 'strcmp(ursus_current_layout, "OPENWRT_STOCK_LAYOUT")' in web
+for board in ("xg040-md", "xg040-mf"):
+    req = profiles["profiles"][board]["binary_require"]
+    assert "URSUS_STOCK_LAYOUT_INSTALL_ENABLED=0" in req, board
+    assert "URSUS_STOCK_LAYOUT_INSTALL_ENABLED=1" not in req, board
+print("T80 stock-layout target retirement + UBI/FIP path guards: PASS")
+PY

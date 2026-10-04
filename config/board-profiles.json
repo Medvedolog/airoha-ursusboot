@@ -80,7 +80,8 @@
         "URSUS_UBI_MIGRATION_ENABLED=1",
         "FM25G01B",
         "FM25G02B",
-        "tftpput"
+        "tftpput",
+        "URSUS_STOCK_LAYOUT_INSTALL_ENABLED=0"
       ],
       "binary_forbid": [
         "Nokia XG-040G-MF"
@@ -176,7 +177,6 @@
         "URSUS_MF2_HWTEST8_LED_END result=OK",
         "URSUS_UBI_MIGRATION_ENABLED=1",
         "URSUS_UBI_UPDATE_ENABLED=1",
-        "URSUS_STOCK_LAYOUT_INSTALL_ENABLED=1",
         "URSUS_FIP_SELFUPDATE_ENABLED=1",
         "URSUS_STOCKBOOT_TCBOOT_MF_ARGS pon=00 ethernet=12 wifi1=05 wifi2=05 usb1=00 usb2=02",
         "ursusstockboot",
@@ -186,7 +186,8 @@
         "URSUS_MAC_SOURCE=RI",
         "FM25G01B",
         "FM25G02B",
-        "tftpput"
+        "tftpput",
+        "URSUS_STOCK_LAYOUT_INSTALL_ENABLED=0"
       ],
       "binary_forbid": [
         "MF2 RAM-only build: persistent operations disabled",

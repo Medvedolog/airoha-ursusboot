@@ -11,6 +11,7 @@
 /* XG140 keeps the vendor-owned boot-area environment and stock A/B layout. */
 #define URSUS_BOARD_ALLOW_UBI_BOOT          0
 #define URSUS_BOARD_ALLOW_FACTORY_FIT       0
+#define URSUS_BOARD_ALLOW_STOCK_LAYOUT_INSTALL 1
 #define URSUS_BOARD_UBI_PROBE_OFF           0x00020000ULL
 #define URSUS_BOARD_FACTORY_KERNEL_OFF      0x000c0000ULL
 #define URSUS_BOARD_FACTORY_KERNEL_SIZE     0x00800000ULL

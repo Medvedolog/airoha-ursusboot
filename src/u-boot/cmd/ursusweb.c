@@ -1002,6 +1002,10 @@ static int ursus_validate_staged(ulong addr, size_t len, bool verbose)
             ursus_set_reason(&ursus_img, URSUS_RC_DEVICE_MISMATCH,
                              "OpenWrt non-UBI sysupgrade supported_devices does not contain nokia,xg-040g-md");
             ret = -ENODEV;
+        } else if (!URSUS_BOARD_ALLOW_STOCK_LAYOUT_INSTALL) {
+            ursus_set_reason(&ursus_img, URSUS_RC_UNSUPPORTED_CLASS,
+                             "OpenWrt non-UBI sysupgrade recognized for diagnostics; stock-layout install/update is disabled on this board; migrate to OpenWrt UBI");
+            ret = -EPROTONOSUPPORT;
         } else if (strcmp(ursus_current_layout, "STOCK") &&
                    strcmp(ursus_current_layout, "OPENWRT_STOCK_LAYOUT")) {
             ursus_set_reason(&ursus_img, URSUS_RC_LAYOUT_UNSUPPORTED,
@@ -1086,7 +1090,8 @@ out:
                ursus_img.kernel_arch_valid, ursus_img.fdt_compatible, ret);
     ursus_logf("FIRMWARE VALIDATION: operation=%s reason=%s\n",
                ursus_img.type == URSUS_IMG_NONUBI_SYSUPGRADE ?
-                   (!strcmp(ursus_img.reason_class, URSUS_RC_OK) ? "INSTALL_OPENWRT_STOCK_LAYOUT_AVAILABLE" : "INSTALL_OPENWRT_STOCK_LAYOUT_LOCKED") :
+                   (URSUS_BOARD_ALLOW_STOCK_LAYOUT_INSTALL && !strcmp(ursus_img.reason_class, URSUS_RC_OK) ?
+                    "INSTALL_OPENWRT_STOCK_LAYOUT_AVAILABLE" : "INSTALL_OPENWRT_STOCK_LAYOUT_DISABLED") :
                ursus_img.type == URSUS_IMG_UBI_SYSUPGRADE ?
                    (!strcmp(ursus_current_layout, "OPENWRT_UBI") ? "UPDATE_OPENWRT_UBI_AVAILABLE" : "INSTALL_OPENWRT_UBI_AVAILABLE") : "NONE",
                ursus_img.reason);
@@ -1100,7 +1105,9 @@ out:
                ursus_img.bootable_fit, ret, ursus_img.reason);
         if (!ret && (ursus_img.type == URSUS_IMG_NONUBI_SYSUPGRADE || ursus_img.type == URSUS_IMG_UBI_SYSUPGRADE)) {
             printf("URSUS_IMAGE_PREFLIGHT_VALID\n");
-            if (ursus_img.type == URSUS_IMG_NONUBI_SYSUPGRADE && !strcmp(ursus_img.reason_class, URSUS_RC_OK))
+            if (ursus_img.type == URSUS_IMG_NONUBI_SYSUPGRADE &&
+                URSUS_BOARD_ALLOW_STOCK_LAYOUT_INSTALL &&
+                !strcmp(ursus_img.reason_class, URSUS_RC_OK))
                 printf("URSUS_STOCK_LAYOUT_INSTALL_AVAILABLE=1\n");
             else if (ursus_img.type == URSUS_IMG_UBI_SYSUPGRADE) {
                 if (!strcmp(ursus_current_layout, "OPENWRT_UBI"))
@@ -1466,6 +1473,10 @@ static int ursus_factory_install(void)
     ulong kernel_addr, root_addr;
     int ret;
 
+    if (!URSUS_BOARD_ALLOW_STOCK_LAYOUT_INSTALL) {
+        printf("URSUS_STOCK_LAYOUT_INSTALL_POLICY_REJECT board=%s\n", URSUS_BOARD_POLICY_ID);
+        return -EPERM;
+    }
     if (ursus_img.type != URSUS_IMG_NONUBI_SYSUPGRADE || !ursus_img.metadata_valid ||
         !ursus_img.device_compatible || !ursus_img.fit_valid ||
         !ursus_img.fit_hashes_valid || !ursus_img.kernel_found || !ursus_img.root_found)
@@ -1662,7 +1673,8 @@ static void ursus_build_status(void)
                         ursus_img.type == URSUS_IMG_INVALID ? "INVALID" : "STAGED";
     bool any_op_active = ursus_ubi_update_active() || ursus_ubi_migration_active() ||
                          ursus_fip_update_active();
-    bool stock_layout_ready = ursus_img.type == URSUS_IMG_NONUBI_SYSUPGRADE &&
+    bool stock_layout_ready = URSUS_BOARD_ALLOW_STOCK_LAYOUT_INSTALL &&
+                         ursus_img.type == URSUS_IMG_NONUBI_SYSUPGRADE &&
                          ursus_img.metadata_valid && ursus_img.device_compatible &&
                          ursus_img.fit_valid && ursus_img.fit_hashes_valid &&
                          !strcmp(ursus_img.reason_class, URSUS_RC_OK) &&
@@ -1853,12 +1865,14 @@ static void ursus_build_plan_reply(int ret)
     bool stock_layout_ready = false, ubi_update = false, ubi_migrate = false;
 
     if (!ret && ursus_img.type == URSUS_IMG_NONUBI_SYSUPGRADE) {
-        stock_layout_ready = !strcmp(ursus_current_layout, "STOCK") ||
-                        !strcmp(ursus_current_layout, "OPENWRT_STOCK_LAYOUT");
+        stock_layout_ready = URSUS_BOARD_ALLOW_STOCK_LAYOUT_INSTALL &&
+                        (!strcmp(ursus_current_layout, "STOCK") ||
+                         !strcmp(ursus_current_layout, "OPENWRT_STOCK_LAYOUT"));
         action = stock_layout_ready ? (!strcmp(ursus_current_layout, "OPENWRT_STOCK_LAYOUT") ?
                  "UPDATE_OPENWRT_STOCK_LAYOUT" : "INSTALL_OPENWRT_STOCK_LAYOUT") : "NONE";
         if (!stock_layout_ready)
-            rclass = URSUS_RC_LAYOUT_UNSUPPORTED;
+            rclass = URSUS_BOARD_ALLOW_STOCK_LAYOUT_INSTALL ?
+                     URSUS_RC_LAYOUT_UNSUPPORTED : URSUS_RC_UNSUPPORTED_CLASS;
     } else if (!ret && ursus_img.type == URSUS_IMG_UBI_SYSUPGRADE) {
         ubi_update = !strcmp(ursus_current_layout, "OPENWRT_UBI");
         ubi_migrate = (!strcmp(ursus_current_layout, "STOCK") ||
@@ -2403,6 +2417,12 @@ static err_t ursus_route_ready(struct tcp_pcb *pcb, struct ursus_conn *c)
     }
     if (URSUS_REQ_MATCH(c->reqhdr, "POST /api/install-openwrt-stock-layout ")) {
         bool layout_ok = !strcmp(ursus_current_layout, "STOCK") || !strcmp(ursus_current_layout, "OPENWRT_STOCK_LAYOUT");
+        if (!URSUS_BOARD_ALLOW_STOCK_LAYOUT_INSTALL) {
+            ursus_logf("OPENWRT_STOCK_LAYOUT: install rejected by board policy board=%s\n",
+                       URSUS_BOARD_POLICY_ID);
+            return ursus_http_start_response(pcb, c, 409, "application/json",
+                "{\"result\":\"REJECTED\",\"reason_class\":\"UNSUPPORTED_IMAGE_CLASS\",\"reason\":\"stock-layout OpenWrt install is disabled on this board; use OpenWrt UBI migration\"}\n");
+        }
         {
             char confirm[32];
             if (!ursus_parse_header_value(c->reqhdr, "X-Ursus-Confirm", confirm, sizeof(confirm)) ||
@@ -2875,7 +2895,8 @@ static int do_ursusweb(struct cmd_tbl *cmdtp, int flag, int argc, char *const ar
     ursus_last_rx_error = 0;
     ursus_rx_error_repeats = 0;
 
-    printf("URSUS_WEB_BEGIN version=%s\nURSUS_STOCK_LAYOUT_INSTALL_ENABLED=1\nURSUS_UBI_PREFLIGHT_ENABLED=1\nURSUS_UBI_UPDATE_ENABLED=1\nURSUS_UBI_MIGRATION_ENABLED=1\nURSUS_FIP_SELFUPDATE_ENABLED=1\nURSUS_FIP_SELFUPDATE_INPUTS=web,tftp,uart,wget\nURSUS_VANILLA_REPLACE_ENABLED=1\nURSUS_EXPERT_INITRAMFS_SEPARATE_UPLOAD=1\nURSUS_UPLOAD_GENERATION_ENABLED=1\n", URSUS_VERSION);
+    printf("URSUS_WEB_BEGIN version=%s\nURSUS_STOCK_LAYOUT_INSTALL_ENABLED=%u\nURSUS_UBI_PREFLIGHT_ENABLED=1\nURSUS_UBI_UPDATE_ENABLED=1\nURSUS_UBI_MIGRATION_ENABLED=1\nURSUS_FIP_SELFUPDATE_ENABLED=1\nURSUS_FIP_SELFUPDATE_INPUTS=web,tftp,uart,wget\nURSUS_VANILLA_REPLACE_ENABLED=1\nURSUS_EXPERT_INITRAMFS_SEPARATE_UPLOAD=1\nURSUS_UPLOAD_GENERATION_ENABLED=1\n",
+           URSUS_VERSION, URSUS_BOARD_ALLOW_STOCK_LAYOUT_INSTALL ? 1U : 0U);
     env_set("ipaddr", "192.168.1.1");
     env_set("netmask", "255.255.255.0");
     env_set("serverip", "192.168.1.254");
