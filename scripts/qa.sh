@@ -351,9 +351,9 @@ bash "$ROOT/scripts/qa-pipeline.sh"
 echo URSUSBOOT_STANDALONE_QA=PASS
 
 # t80: Nokia MD/MF persistent UrsusBoot must never create stock-layout OpenWrt.
-python3 - <<'PY'
-import json, pathlib, os
-r = pathlib.Path(os.environ["ROOT"])
+python3 - "$ROOT" <<'PY'
+import json, pathlib, sys
+r = pathlib.Path(sys.argv[1])
 web = (r/"src/u-boot/cmd/ursusweb.c").read_text()
 profiles = json.loads((r/"config/board-profiles.json").read_text())
 for h in ("xg040-md.h", "xg040-mf.h"):
