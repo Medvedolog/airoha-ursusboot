@@ -368,6 +368,30 @@ assert "URSUS_BOARD_ALLOW_STOCK_LAYOUT_INSTALL &&" in web
 assert "ursus_ubi_migration_start" in web and "ursus_ubi_update_start" in web
 assert "ursus_fip_update_start" in web
 assert 'strcmp(ursus_current_layout, "OPENWRT_STOCK_LAYOUT")' in web
+# The retired factory installer must have exactly one arm site, and it must
+# remain behind the HTTP policy reject.  The backend itself must reject before
+# any MTD registration/erase/write primitive can run.
+assert web.count("ursus_pending_factory_install = true") == 1
+route = web.index('POST /api/install-openwrt-stock-layout ')
+route_guard = web.index("if (!URSUS_BOARD_ALLOW_STOCK_LAYOUT_INSTALL)", route)
+route_arm = web.index("ursus_pending_factory_install = true", route)
+assert route < route_guard < route_arm
+factory = web.index("static int ursus_factory_install(void)")
+factory_guard = web.index("if (!URSUS_BOARD_ALLOW_STOCK_LAYOUT_INSTALL)", factory)
+factory_policy_return = web.index("return -EPERM;", factory_guard)
+factory_first_write = min(
+    p for p in (
+        web.find("ursus_factory_register_mtd()", factory),
+        web.find('run_command("mtd erase', factory),
+        web.find('run_command("mtd write', factory),
+    ) if p >= 0
+)
+assert factory < factory_guard < factory_policy_return < factory_first_write
+
+ui = (r/"src/u-boot/include/ursusweb_ui.inc").read_text(encoding="latin-1")
+for dead in ("installFactory", "INSTALL-OPENWRT-STOCK-LAYOUT", "openwrt-stock-layout"):
+    assert dead not in ui, dead
+assert "installUbi" in ui and "async function startUbi" in ui
 for board in ("xg040-md", "xg040-mf"):
     req = profiles["profiles"][board]["binary_require"]
     assert "URSUS_STOCK_LAYOUT_INSTALL_ENABLED=0" in req, board
